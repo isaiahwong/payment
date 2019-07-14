@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: yourservice
+  labels:
+    expose: 'false'
+    serviceType: 'resource'
+    path: 'dunamis'
+    version: 'v1'
+spec:
+  type: ClusterIP
+  selector: 
+    app: dunamis
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: dunamis-port
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dunamis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dunamis
+  template:
+    metadata:
+      labels:
+        app: dunamis
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+      - name: dunamis
+        image: registry.gitlab.com/isaiahwong/dunamis
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: dunamis-port
+          containerPort: 50051
+        envFrom:
+        - configMapRef:
+            name: dunamis-env-configmap
+        - secretRef:
+            name: dunamis-env-secrets

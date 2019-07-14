@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-mongo-deployment
+spec:
+  replicas: 1
+  selector: 
+    matchLabels:
+      component: payment-mongo
+  template:
+    metadata:
+      labels:
+        component: payment-mongo
+    spec:
+      volumes:
+        - name: payment-mongo-storage
+          persistentVolumeClaim:
+            claimName: payment-mongo-pvc
+      containers:
+        - name: payment-mongo
+          image: mongo
+          ports:
+            - name: payment-mongo-port
+              containerPort: 27017
+          volumeMounts:
+            - name: payment-mongo-storage
+              mountPath: /data/db
+          envFrom:
+          - secretRef:
+              name: mongo-env-secrets
+          env:
+            - name: 'MONGO_INITDB_DATABASE'
+              value: 'payment'
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-mongo-service
+spec:
+  ports:
+  - name: tcp
+    port: 27017
+    targetPort: payment-mongo-port
+  selector: 
+    component: payment-mongo
+  type: ClusterIP
+
+---
+
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: payment-mongo-policy
+spec:
+  podSelector:
+    matchLabels:
+      component: payment-mongo
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+      - podSelector:
+          matchLabels:
+            app: payment
+    ports:
+    - protocol: TCP
+      port: 27017

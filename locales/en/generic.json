@@ -1,0 +1,60 @@
+{
+    "languageName": "English",
+    "missingIP": "Invalid ",
+    "invalidIP": "Missing IP",
+
+    "paymentNotFound": "No such Payment for paymentId.",
+    "missingStripeToken": "Missing Stripe token",
+    "invalidReqParams": "Invalid parameters",
+    "loginError": "An error occured. Please try again",
+    "errorSavingNewUser": "An error occured when saving, please try again",
+    "missingIdCriteria": "Missing Username or Email.",
+    "missingEmail": "Missing email.",
+    "missingUsername": "Missing Login Name.",
+    "missingPassword": "Missing password.",
+    "missingNewPassword": "Missing new password.",
+    "missingPasswordId": "Missing password id",
+    "missingPasswordResetToken": "Missing password token",
+
+    "nameBadCharacters": "Name must contain only letters.",
+    "invalidFirstname": "Invalid first name",
+    "invalidLastname": "Invalid last name",
+    "invalidEmailDomain": "You cannot register with emails with the following domains: <%= domains %>",
+    "wrongPassword": "Wrong password.",
+    "incorrectDeletePhrase": "Please type <%= magicWord %> in all caps to delete your account.",
+    "invalidEmail": "Invalid email address.",
+    "emailTaken": "Email address is already used in an account.",
+
+    "missingVerificationToken": "Missing verification token",
+
+    "invalidEmailVerification": "Verification link is invalid or expired.",
+
+    "oAuthEmailExists": "O Auth sign in failed because the Email has already been taken.",
+    "googleOauthNonExist": "No account exists for that Google login. Try signing up instead.",
+    "facebookOauthNonExist": "No account exists for that Facebook login. Try signing up instead.",
+
+    "newEmailRequired": "Missing new email address.",
+    "usernameTaken": "Login Name already taken.",
+    "usernameWrongLength": "Login Name must be between 1 and 20 characters long.",
+    "usernameBadCharacters": "Login Name must contain only letters a to z, numbers 0 to 9, hyphens, or underscores.",
+    "passwordConfirmationMatch": "Password confirmation doesn't match password.",
+    "invalidLoginCredentials": "Incorrect username or password.",
+    "passwordInvalid": "You have entered an invalid password",
+
+    "passwordResetExpired": "Password request expired.",
+    "passwordResetPage": "Reset Password",
+
+    "passwordReset": "If we have your email on file, instructions for setting a new password have been sent to your email.",
+    "passwordResetEmailSubject": "Password Reset for Habitica",
+    "passwordResetEmailText": "If you requested a password reset for <%= username %> on Habitica, head to <%= passwordResetLink %> to set a new one. The link will expire after 24 hours. If you haven't requested a password reset, please ignore this email.",
+    "passwordResetEmailHtml": "If you requested a password reset for <strong><%= username %></strong> on Habitica, <a href=\"<%= passwordResetLink %>\">click here</a> to set a new one. The link will expire after 24 hours.<br/><br>If you haven't requested a password reset, please ignore this email.",
+    "invalidLoginCredentialsLong": "Uh-oh - your email address / login name or password is incorrect.\n- Make sure they are typed correctly. Your login name and password are case-sensitive.\n- You may have signed up with Facebook or Google-sign-in, not email so double-check by trying them.\n- If you forgot your password, click \"Forgot Password\".",
+    "invalidCredentials": "There is no account that uses those credentials.",
+    "accountSuspended": "This account, User ID \"<%= userId %>\", has been blocked for breaking the [Community Guidelines](https://habitica.com/static/community-guidelines) or [Terms of Service](https://habitica.com/static/terms). For details or to ask to be unblocked, please email our Community Manager at <%= communityManagerEmail %> or ask your parent or guardian to email them. Please copy your User ID into the email and include your Profile Name.",
+    "accountSuspendedTitle": "Account has been suspended",
+    "userExists": "User account with the email exists.",
+    "missingCaptcha": "Missing captcha token",
+    "captchaVerificationFail": "Captcha verification fail",
+    "missingIp": "Remote host address is required."
+}
+  
