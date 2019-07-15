@@ -12,12 +12,15 @@ class Stripe extends Payment {
     );
   }
 
+  constructEvent(requestBody, signature, secret = process.env.STRIPE_ENDPOINT_SECRET) {
+    return this.stripe.webhooks.constructEvent(requestBody, signature, secret);
+  }
+
   async setupIntent(usage = 'on_session') {
     return this.stripe.setupIntents.create({
       usage
     });
   }
-
 
   /**
    * Creates Stripe Customer
@@ -58,4 +61,5 @@ class Stripe extends Payment {
   }
 }
 
-export default Stripe;
+export default new Stripe();
+export { Stripe };

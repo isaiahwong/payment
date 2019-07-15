@@ -2,10 +2,10 @@ apiVersion: skaffold/v1beta8
 kind: Config
 build:
   artifacts:
-  - image: registry.gitlab.com/isaiahwong/dunamis
+  - image: registry.gitlab.com/isaiahwong/cluster/api/payment
 deploy:
   kubectl:
     manifests:
     - k8s/env.yaml
-    - k8s/mail.yaml
+    - k8s/payment.yaml
     - k8s/secrets.yaml

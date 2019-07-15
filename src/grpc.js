@@ -5,7 +5,7 @@ import { grpcLoader } from 'grpc-utils';
 
 import controllers from './controllers';
 
-const PROTO_PATH = path.join(__dirname, '..', 'proto/health/health.proto');
+const PROTO_PATH = path.join(__dirname, '..', 'proto/payment/payment.proto');
 
 class GrpcServer {
   constructor() {
@@ -34,8 +34,8 @@ class GrpcServer {
       .reduce((obj, svcKey) => {
         const fn = _service[svcKey].originalName;
         const _obj = obj;
-        if (_handlers[fn]) {
-          _obj[fn] = _handlers[fn];
+        if (_handlers[fn] || _handlers[svcKey]) {
+          _obj[fn] = _handlers[fn] || _handlers[svcKey];
         }
         return _obj;
       }, {});

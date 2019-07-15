@@ -3,12 +3,18 @@ require('@babel/polyfill');
 // Setup Bluebird as the global promise library
 global.Promise = require('bluebird');
 
-const path = require('path');
-const logger = require('esther');
-const pkg = require('../package.json');
-
 // load env variables
 require('./lib/setupEnv').config();
+
+const path = require('path');
+const logger = require('esther');
+
+const GrpcServer = require('./grpc');
+const HttpServer = require('./http');
+const { setupLanguage } = require('./lib/i18n');
+const mongoConnect = require('./lib/mongoose');
+// import { initServices } from './lib/services';
+const pkg = require('../package.json');
 
 // initialise logger
 logger.init({
@@ -16,12 +22,14 @@ logger.init({
   logDirectory: path.join(__dirname, '..', 'logs'),
   useStackDriver: process.env.ENABLE_STACKDRIVER === 'true',
   stackDriverOpt: {
-    serviceName: 'dunamis',
+    serviceName: 'payment',
     ver: pkg.version
   }
 });
 
-const Server = require('./server');
+setupLanguage();
+// mongoConnect();
+
 
 process.on('unhandledRejection', (reason, p) => {
   logger.error('Unhandled Rejection at:', p, 'reason:', reason);
@@ -29,6 +37,8 @@ process.on('unhandledRejection', (reason, p) => {
   process.exit(1);
 });
 
-const server = new Server();
+const grpcServer = new GrpcServer();
+const httpServer = new HttpServer();
 
-server.listen();
+grpcServer.listen();
+httpServer.listen();
