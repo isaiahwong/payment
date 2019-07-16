@@ -12,6 +12,7 @@ const SUPPORTED_CURRENCIES = [
 const CURRENCY_PROP = {
   type: String,
   lowercase: true,
+  require: true,
   validate: {
     validator: function fn(v) {
       return SUPPORTED_CURRENCIES.includes(v.toLowerCase());
@@ -23,6 +24,7 @@ const CURRENCY_PROP = {
 
 const AMOUNT_PROP = {
   type: Number,
+  require: true,
   validate: {
     validator: function fn(v) {
       return Number.isInteger(v);
@@ -34,12 +36,11 @@ const AMOUNT_PROP = {
 
 const TransactionSchema = Schema({
   object: { type: String, default: 'transaction', enum: ['transaction'] },
-  payment: { type: Schema.Types.ObjectId, ref: 'Payment', required: true },
-  user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  payment: { type: Schema.Types.ObjectId, ref: 'Payment' },
+  user: { type: Schema.Types.ObjectId, ref: 'User' },
 
   email: {
     type: String,
-    required: true,
     index: { unique: true },
     lowercase: true,
     email: {
@@ -52,7 +53,9 @@ const TransactionSchema = Schema({
   },
 
   provider: { type: String, enum: ['stripe', 'paypal'], required: true },
-  stripe_payment_intent: { type: String, require: true },
+
+  stripe_payment_intent_id: { type: String, unique: true },
+  stripe_payment_intent: { type: Schema.Types.Mixed },
 
   currency: CURRENCY_PROP,
 
@@ -76,7 +79,12 @@ const TransactionSchema = Schema({
 
   paid: { type: Boolean, default: true, required: false },
 
-  status: { enum: ['succeeded', 'declined', 'refunded', 'pending'], default: 'pending', require: true },
+  status: {
+    type: String,
+    default: 'pending',
+    enum: ['succeeded', 'declined', 'refunded', 'pending'],
+    require: true
+  },
 
   ip: { type: String, select: false },
   updated: { type: Date, select: false },
@@ -101,5 +109,5 @@ TransactionSchema.methods.toJSON = function toJSON() {
 /**
  * Expose TransactionSchema model
  */
-const Transaction = mongoose.model('Stripe', TransactionSchema);
+const Transaction = mongoose.model('Transaction', TransactionSchema);
 export default Transaction;

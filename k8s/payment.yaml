@@ -17,9 +17,9 @@ spec:
   - name: grpc
     port: 50051
     targetPort: grpc-port
-  - name: http
-    port: 5000
-    targetPort: http-port
+  # - name: http
+  #   port: 5000
+  #   targetPort: http-port
 
 ---
 
@@ -45,8 +45,8 @@ spec:
         ports:
         - name: grpc-port
           containerPort: 50051
-        - name: http-port
-          containerPort: 5000
+        # - name: http-port
+        #   containerPort: 5000
         envFrom:
         - configMapRef:
             name: payment-env-configmap

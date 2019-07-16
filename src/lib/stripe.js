@@ -1,12 +1,14 @@
+/* eslint-disable class-methods-use-this */
+/* eslint-disable camelcase */
 import stripe from 'stripe';
+import logger from 'esther';
 import { InternalServerError, BadRequest } from 'horeb';
 
-import i18n from './i18n';
-import Payment from './payment';
+import Payment from '../models/payment';
+import Transaction from '../models/transaction';
 
-class Stripe extends Payment {
+class Stripe {
   constructor() {
-    super();
     this.stripe = stripe(
       __PROD__ ? process.env.STRIPE_SECRET_KEY : process.env.STRIPE_SECRET_TEST
     );
@@ -16,50 +18,104 @@ class Stripe extends Payment {
     return this.stripe.webhooks.constructEvent(requestBody, signature, secret);
   }
 
-  async setupIntent(usage = 'on_session') {
-    return this.stripe.setupIntents.create({
-      usage
-    });
-  }
-
   /**
    * Creates Stripe Customer
-   * @param {String} userId
-   * @returns {Payment} payment
+   * @param {String} paymentId
+   * @returns {customer} customer
    */
-  async createCustomer(userId) {
-    const payment = await Payment.find({ user: userId });
-
-    if (!payment) {
-      throw new BadRequest(i18n.t('paymentNotFound'));
+  async createCustomer(userId, email) {
+    if (!userId) {
+      throw new BadRequest('userId missing');
+    }
+    if (!email) {
+      throw new BadRequest('email missing');
     }
 
-    if (payment.stripe.customerId) {
-      return payment;
-    }
-
-    // eslint-disable-next-line prefer-const
-    let { _id, user, email } = payment;
-    _id = JSON.stringify(_id);
-    user = JSON.stringify(user);
-
-    // Create Customer
     const customer = await this.stripe.customers.create({
       email,
       metadata: {
-        _id,
-        user
+        user: userId,
       }
     });
 
     if (!customer) {
-      throw new InternalServerError('Fail to create Stripe Customer');
+      throw new InternalServerError('Error creating customer');
+    }
+    return customer;
+  }
+
+  async processPaidPaymentIntent(intent) {
+    if (!intent) {
+      throw new BadRequest('Payment intent missing');
+    }
+    const {
+      _id,
+      customer: customerId,
+      receipt_email,
+      currency,
+      amount,
+      status,
+      paid,
+      livemode,
+      metadata
+    } = intent;
+
+    if (!paid) {
+      throw new BadRequest('Payment Intent has not been paid');
+    }
+    if (status !== 'succeeded') {
+      throw new BadRequest('Payment Intent status has not succeeded');
     }
 
-    payment.stripe.customerId = customer.id;
+    let transaction = null;
+    const payment = await Payment.find({ stripe_customer: customerId });
+
+    if (!payment) {
+      if (livemode) {
+        throw new BadRequest('No payment object found for transaction.');
+      }
+      logger.warn(`[Livemode: ${livemode}] Warning: No payment object found for transaction.`);
+      return null;
+    }
+
+    const {
+      _id: paymentId, user, email,
+    } = payment;
+
+    if (metadata && metadata.transaction) {
+      transaction = await Transaction.find({ _id: metadata.transaction });
+    }
+    else {
+      // eslint-disable-next-line eqeqeq
+      transaction = payment.transactions.find(t => t.stripe_payment_intent_id == _id);
+    }
+
+    // Create new transaction if it does not exist
+    if (!transaction) {
+      transaction = new Transaction({
+        payment: paymentId,
+        user,
+        email: receipt_email || email,
+        provider: 'stripe',
+        stripe_payment_intent: intent,
+        currency,
+        total: amount,
+        status,
+        paid
+      });
+      await transaction.save();
+      payment.transactions.push(transaction._id);
+    }
+    else { // update trnsaction status
+      transaction.status = status;
+      transaction.paid = paid;
+    }
+
     return payment.save();
   }
 }
 
-export default new Stripe();
-export { Stripe };
+const stripeHelper = new Stripe();
+
+export default Stripe;
+export { stripeHelper };

@@ -7,7 +7,7 @@ const { Schema } = mongoose;
 
 const PaymentSchema = Schema({
   object: { type: String, default: 'payment', enum: ['payment'] },
-  user: { type: Schema.Types.ObjectId, ref: 'User' },
+  user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 
   email: {
     type: String,
@@ -24,10 +24,16 @@ const PaymentSchema = Schema({
   },
 
   default_provider: { type: String, enum: ['stripe', 'paypal'] },
+
+  stripe_customer: { type: String },
   stripe: { type: Schema.Types.ObjectId, ref: 'Stripe' },
   transactions: [{ type: Schema.Types.ObjectId, ref: 'Transaction' }],
   updated: { type: Date, select: false },
   created: { type: Date, select: false }
+});
+
+PaymentSchema.pre('find', function cb() {
+  this.populate('transactions');
 });
 
 PaymentSchema.pre('save', function cb(next) {

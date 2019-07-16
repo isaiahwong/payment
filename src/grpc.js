@@ -1,10 +1,13 @@
+/* eslint-disable import/no-dynamic-require */
+/* eslint-disable global-require */
 import path from 'path';
+import fs from 'fs';
 import grpc from 'grpc';
 import logger from 'esther';
 import { grpcLoader } from 'grpc-utils';
+import { InternalServerError } from 'horeb';
 
-import controllers from './controllers';
-
+const CONTROLLER_PATH = path.join(__dirname, 'controllers/');
 const PROTO_PATH = path.join(__dirname, '..', 'proto/payment/payment.proto');
 
 class GrpcServer {
@@ -16,13 +19,23 @@ class GrpcServer {
     this.loadCoreServices(proto);
   }
 
-  loadCoreServices(proto) {
-    this.pkg = Object.keys(proto)[0];
-    this.service = Object.keys(proto[this.pkg])[0];
-    this._server.addService(
-      proto[this.pkg][this.service].service,
-      GrpcServer.mapControllers(proto[this.pkg][this.service].service, controllers)
-    );
+  static iterate(filePath) {
+    return fs
+      .readdirSync(filePath)
+      .reduce((obj, fileName) => {
+        const _obj = obj;
+        if (!fs.statSync(filePath + fileName).isFile()) { // Folder
+          GrpcServer.iterate(`${filePath}${fileName}/`);
+          return _obj;
+        }
+        if (fileName.match(/\.js$/)) {
+          const controller = require(filePath + fileName);
+          if (!controller) return _obj;
+
+          return { ..._obj, ...controller };
+        }
+        return _obj;
+      }, {});
   }
 
   /**
@@ -39,6 +52,21 @@ class GrpcServer {
         }
         return _obj;
       }, {});
+  }
+
+
+  loadCoreServices(proto) {
+    if (!proto) {
+      throw new InternalServerError('protos not found');
+    }
+    this.pkg = Object.keys(proto)[0];
+    this.service = Object.keys(proto[this.pkg])[0];
+
+    const controllers = GrpcServer.iterate(CONTROLLER_PATH);
+    this._server.addService(
+      proto[this.pkg][this.service].service,
+      GrpcServer.mapControllers(proto[this.pkg][this.service].service, controllers)
+    );
   }
 
   listen() {
