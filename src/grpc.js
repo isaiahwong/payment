@@ -60,6 +60,9 @@ class GrpcServer {
       throw new InternalServerError('protos not found');
     }
     this.pkg = Object.keys(proto)[0];
+    if (!this.pkg) {
+      throw new InternalServerError('package not found');
+    }
     this.service = Object.keys(proto[this.pkg])[0];
 
     const controllers = GrpcServer.iterate(CONTROLLER_PATH);

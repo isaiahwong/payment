@@ -6,7 +6,9 @@
     "paymentNotFound": "No such Payment for paymentId.",
     "missingStripeToken": "Missing Stripe token",
     "invalidReqParams": "Invalid parameters",
-    "loginError": "An error occured. Please try again",
+    "cardExists": "The card you have added exists",
+    "stripeCustomerDoesNotExist": "Stripe customer does not exist",
+
     "errorSavingNewUser": "An error occured when saving, please try again",
     "missingIdCriteria": "Missing Username or Email.",
     "missingEmail": "Missing email.",

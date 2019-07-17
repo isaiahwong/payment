@@ -44,6 +44,43 @@ class Stripe {
     return customer;
   }
 
+  addPaymentMethod(customerId, paymentMethod) {
+    return this.stripe.paymentMethods.attach(
+      paymentMethod,
+      {
+        customer: customerId,
+      }
+    );
+  }
+
+  setDefaultPaymentMethod(customerId, paymentMethod) {
+    return this.stripe.customers.update(customerId, {
+      invoice_settings: {
+        default_payment_method: paymentMethod,
+      }
+    });
+  }
+
+  async doesCardPaymentMethodExist(paymentMethodId, customerId) {
+    if (!paymentMethodId || !customerId) return false;
+
+    const paymentMethod = await this.stripe.paymentMethods.retrieve(paymentMethodId);
+    if (!paymentMethod) return false;
+
+    const { card } = paymentMethod;
+    if (!card) return false;
+
+    const cards = await this.stripe.paymentMethods.list(
+      { customer: customerId, type: 'card' }
+    );
+
+    if (!cards || !cards.data || !cards.data.length) return false;
+
+    const found = cards.data.find(pm => pm.card.fingerprint === paymentMethod.card.fingerprint);
+
+    return !!found;
+  }
+
   async processPaidPaymentIntent(intent) {
     if (!intent) {
       throw new BadRequest('Payment intent missing');

@@ -67,7 +67,7 @@ api.createPayment = async function handler(call, callback) {
       stripe.save()
     ]);
 
-    callback(null, newPayment);
+    return callback(null, newPayment);
   }
   catch (err) {
     return callback(err);

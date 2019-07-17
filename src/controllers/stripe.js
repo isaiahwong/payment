@@ -1,10 +1,12 @@
 /* eslint-disable no-case-declarations */
 import logger from 'esther';
-import { BadRequest, InternalServerError } from 'horeb';
+import { BadRequest, InternalServerError, NotAuthorized } from 'horeb';
 import { encodeArrayMetadata } from 'grpc-utils';
 
+import i18n from '../lib/i18n';
 import { stripeHelper } from '../lib/stripe';
 import TransactionError from '../models/transactionError';
+import Payment from '../models/payment';
 import { check } from '../utils/validator';
 import { ok, respond } from '../utils/response';
 
@@ -44,6 +46,61 @@ api.setupIntent = async function handler(call, callback) {
   });
 
   return callback(null, { client_secret: setupIntent.client_secret });
+};
+
+api.addCard = async function handler(call, callback) {
+  const errors = check(call.request, {
+    payment_method: {
+      isEmpty: {
+        errorMessage: 'payment method missing',
+        isTruthyError: true
+      },
+    },
+    user_id: {
+      isEmpty: {
+        errorMessage: 'user id missing',
+        isTruthyError: true
+      },
+    }
+  });
+
+  if (errors) {
+    const err = new BadRequest('invalidParams');
+    const metadata = encodeArrayMetadata('errors', errors);
+    err.metadata = metadata;
+    return callback(err);
+  }
+
+  const { user_id: userId, payment_method: paymentMethod } = call.request;
+  const payment = await Payment.find({ user: userId });
+
+  if (!payment) {
+    const err = new NotAuthorized();
+    return callback(err);
+  }
+
+  const { stripe_customer: stripeCustomer } = payment;
+
+  try {
+    const isExists = await stripeHelper.doesCardPaymentMethodExist(paymentMethod, stripeCustomer);
+    if (isExists) {
+      return callback(new BadRequest(i18n.t('cardExists')));
+    }
+
+    // eslint-disable-next-line no-unused-vars
+    const [_, customer] = await Promise.all([
+      stripeHelper.addPaymentMethod(stripeCustomer, paymentMethod),
+      stripeHelper.setDefaultPaymentMethod(stripeCustomer, paymentMethod)
+    ]);
+    const paymentMethods = await stripeHelper.stripe.paymentMethods.list(stripeCustomer);
+    return callback(null, {
+      all_cards: paymentMethods.data,
+      invoice_settings: customer.invoice_settings
+    });
+  }
+  catch (err) { // catch stripe errors
+    return callback(new InternalServerError(err.message));
+  }
 };
 
 api.paymentIntentWebhook = async function handler(call, callback) {
