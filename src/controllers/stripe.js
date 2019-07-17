@@ -12,11 +12,11 @@ import { ok, respond } from '../utils/response';
 
 const api = {};
 
-api.setupIntent = async function handler(call, callback) {
-  const errors = check(call.request, {
+api.setupIntent = {
+  validate: {
     customer_id: {
       isEmpty: {
-        errorMessage: 'stripe cuetomer id missing',
+        errorMessage: 'stripe customer id missing',
         isTruthyError: true
       },
     },
@@ -26,30 +26,28 @@ api.setupIntent = async function handler(call, callback) {
         isTruthyError: true
       },
     }
-  });
+  },
+  async handler(call, callback) {
+    const { user_id: userId, customer_id: customerId } = call.request;
 
-  if (errors) {
-    const err = new BadRequest('invalidParams');
-    const metadata = encodeArrayMetadata('errors', errors);
-    err.metadata = metadata;
-    return callback(err);
-  }
-
-  const { user_id: userId, customer_id: customerId } = call.request;
-
-  const setupIntent = await stripeHelper.stripe.setupIntents.create({
-    usage: 'on_session',
-    customer: customerId,
-    metadata: {
-      user: userId
+    try {
+      const setupIntent = await stripeHelper.stripe.setupIntents.create({
+        usage: 'on_session',
+        customer: customerId,
+        metadata: {
+          user: userId
+        }
+      });
+      return callback(null, { client_secret: setupIntent.client_secret });
     }
-  });
-
-  return callback(null, { client_secret: setupIntent.client_secret });
+    catch (err) {
+      return callback(new InternalServerError(err.message));
+    }
+  }
 };
 
-api.addCard = async function handler(call, callback) {
-  const errors = check(call.request, {
+api.addCard = {
+  validate: {
     payment_method: {
       isEmpty: {
         errorMessage: 'payment method missing',
@@ -62,106 +60,102 @@ api.addCard = async function handler(call, callback) {
         isTruthyError: true
       },
     }
-  });
+  },
+  async handler(call, callback) {
+    const { user_id: userId, payment_method: paymentMethod } = call.request;
+    const payment = await Payment.find({ user: userId });
 
-  if (errors) {
-    const err = new BadRequest('invalidParams');
-    const metadata = encodeArrayMetadata('errors', errors);
-    err.metadata = metadata;
-    return callback(err);
-  }
-
-  const { user_id: userId, payment_method: paymentMethod } = call.request;
-  const payment = await Payment.find({ user: userId });
-
-  if (!payment) {
-    const err = new NotAuthorized();
-    return callback(err);
-  }
-
-  const { stripe_customer: stripeCustomer } = payment;
-
-  try {
-    const isExists = await stripeHelper.doesCardPaymentMethodExist(paymentMethod, stripeCustomer);
-    if (isExists) {
-      return callback(new BadRequest(i18n.t('cardExists')));
+    if (!payment) {
+      const err = new NotAuthorized();
+      return callback(err);
     }
 
-    // eslint-disable-next-line no-unused-vars
-    const [_, customer] = await Promise.all([
-      stripeHelper.addPaymentMethod(stripeCustomer, paymentMethod),
-      stripeHelper.setDefaultPaymentMethod(stripeCustomer, paymentMethod)
-    ]);
-    const paymentMethods = await stripeHelper.stripe.paymentMethods.list(stripeCustomer);
-    return callback(null, {
-      all_cards: paymentMethods.data,
-      invoice_settings: customer.invoice_settings
-    });
-  }
-  catch (err) { // catch stripe errors
-    return callback(new InternalServerError(err.message));
+    const { stripe_customer: stripeCustomer } = payment;
+
+    try {
+      const isExists = await stripeHelper.doesCardPaymentMethodExist(paymentMethod, stripeCustomer);
+      if (isExists) {
+        return callback(new BadRequest(i18n.t('cardExists')));
+      }
+
+      // eslint-disable-next-line no-unused-vars
+      const [_, customer] = await Promise.all([
+        stripeHelper.addPaymentMethod(stripeCustomer, paymentMethod),
+        stripeHelper.setDefaultPaymentMethod(stripeCustomer, paymentMethod)
+      ]);
+      const paymentMethods = await stripeHelper.stripe.paymentMethods.list(stripeCustomer);
+      return callback(null, {
+        all_cards: paymentMethods.data,
+        invoice_settings: customer.invoice_settings
+      });
+    }
+    catch (err) { // catch stripe errors
+      return callback(new InternalServerError(err.message));
+    }
   }
 };
 
-api.paymentIntentWebhook = async function handler(call, callback) {
-  const { metadata } = call;
-  let { body } = call.request;
+api.paymentIntentWebhook = {
+  async handler(call, callback) {
+    const { metadata } = call;
+    let { body } = call.request;
 
-  if (!body || !Buffer.isBuffer(body)) {
-    const err = new BadRequest('invalidParams');
-    callback(err); return;
-  }
+    if (!body || !Buffer.isBuffer(body)) {
+      const err = new BadRequest('invalidParams');
+      callback(err); return;
+    }
 
-  body = body.toString();
-  let sig = metadata.get('stripe-signature');
-  sig = sig && sig[0];
+    body = body.toString();
+    let sig = metadata.get('stripe-signature');
+    sig = sig && sig[0];
 
-  try {
-    const event = stripeHelper.constructEvent(body, sig);
+    try {
+      const event = stripeHelper.constructEvent(body, sig);
 
-    let intent = null;
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        intent = event.data.object;
-        try {
-          const payment = await stripeHelper.processPaidPaymentIntent(intent);
-          // Stripe Test Webhook
-          if (!payment && !intent.livemode) {
+      let intent = null;
+      switch (event.type) {
+        case 'payment_intent.succeeded':
+          intent = event.data.object;
+          try {
+            const payment = await stripeHelper.processPaidPaymentIntent(intent);
+            // Stripe Test Webhook
+            if (!payment && !intent.livemode) {
+              callback(ok());
+            }
+            else {
+              throw new InternalServerError('Error processing transaction');
+            }
             callback(ok());
           }
-          else {
-            throw new InternalServerError('Error processing transaction');
+          catch (error) {
+            logger.error(error);
+            const transError = new TransactionError({
+              error,
+              stripe_payment_intent: intent,
+              amount: intent.amount,
+              currency: intent.currency,
+            });
+            await transError.save();
+            callback(error);
           }
-          callback(ok());
-        }
-        catch (error) {
-          logger.error(error);
-          const transError = new TransactionError({
-            error,
-            stripe_payment_intent: intent,
-            amount: intent.amount,
-            currency: intent.currency,
-          });
-          await transError.save();
-          callback(error);
-        }
-        break;
-      case 'payment_intent.payment_failed':
-        intent = event.data.object;
-        const message = intent.last_payment_error && intent.last_payment_error.message;
-        logger.info(`Failed: ${intent.id} ${message}`);
-        // Send email
-        callback(respond(500));
-        break;
-      default:
-        callback(null);
-        return;
+          break;
+        case 'payment_intent.payment_failed':
+          intent = event.data.object;
+          const message = intent.last_payment_error && intent.last_payment_error.message;
+          logger.info(`Failed: ${intent.id} ${message}`);
+          // Send email
+          callback(respond(500));
+          break;
+        default:
+          callback(null);
+          return;
+      }
     }
-  }
-  catch (err) {
-    // invalid signature
-    logger.info(err);
-    callback(new InternalServerError(err.message));
+    catch (err) {
+      // invalid signature
+      logger.info(err);
+      callback(new InternalServerError(err.message));
+    }
   }
 };
 

@@ -4,8 +4,11 @@ import path from 'path';
 import fs from 'fs';
 import grpc from 'grpc';
 import logger from 'esther';
-import { grpcLoader } from 'grpc-utils';
-import { InternalServerError } from 'horeb';
+import { grpcLoader, encodeArrayMetadata } from 'grpc-utils';
+import { InternalServerError, BadRequest } from 'horeb';
+
+import i18n from './lib/i18n';
+import { check } from './utils/validator';
 
 const CONTROLLER_PATH = path.join(__dirname, 'controllers/');
 const PROTO_PATH = path.join(__dirname, '..', 'proto/payment/payment.proto');
@@ -38,17 +41,53 @@ class GrpcServer {
       }, {});
   }
 
+  // /**
+  //  * @param {Object} _service
+  //  * @returns {Object} mapped rpc handlers
+  //  */
+  // static mapControllers(_service, _handlers) {
+  //   return Object.keys(_service)
+  //     .reduce((obj, svcKey) => {
+  //       const fn = _service[svcKey].originalName;
+  //       const _obj = obj;
+  //       if (_handlers[fn] || _handlers[svcKey]) {
+  //         _obj[fn] = _handlers[fn] || _handlers[svcKey];
+  //       }
+  //       return _obj;
+  //     }, {});
+  // }
+
   /**
-   * @param {Object} _service
+   * @param {Object} service
+   * @param {Object} controllers
    * @returns {Object} mapped rpc handlers
    */
-  static mapControllers(_service, _handlers) {
-    return Object.keys(_service)
+  static mapControllers(service, controllers) {
+    return Object.keys(service)
       .reduce((obj, svcKey) => {
-        const fn = _service[svcKey].originalName;
         const _obj = obj;
-        if (_handlers[fn] || _handlers[svcKey]) {
-          _obj[fn] = _handlers[fn] || _handlers[svcKey];
+        const fn = service[svcKey].originalName;
+        if (controllers[fn] || controllers[svcKey]) {
+          const { validate, handler } = controllers[fn] || controllers[svcKey];
+
+          // Adds a validate middleware
+          if (validate) {
+            const middleware = (call, callback) => {
+              const errors = check(call.request, validate);
+
+              if (errors) {
+                const err = new BadRequest(i18n.t('invalidReqParams'));
+                const metadata = encodeArrayMetadata('errors', errors);
+                err.metadata = metadata;
+                return callback(err);
+              }
+              return handler(call, callback);
+            };
+            _obj[fn] = middleware;
+          }
+          else {
+            _obj[fn] = handler;
+          }
         }
         return _obj;
       }, {});

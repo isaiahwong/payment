@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { BadRequest, InternalServerError } from 'horeb';
 import { encodeArrayMetadata } from 'grpc-utils';
 
+import i18n from '../lib/i18n';
 // eslint-disable-next-line import/no-named-as-default
 import TransactionError from '../models/transactionError';
 import { check } from '../utils/validator';
@@ -13,8 +14,8 @@ import Payment from '../models/payment';
 
 const api = {};
 
-api.createPayment = async function handler(call, callback) {
-  const errors = check(call.request, {
+api.createPayment = {
+  validarte: {
     user_id: {
       isEmpty: {
         errorMessage: 'user_id missing',
@@ -30,47 +31,42 @@ api.createPayment = async function handler(call, callback) {
         }
       }
     }
-  });
-  if (errors) {
-    const err = new BadRequest('invalidParams');
-    const metadata = encodeArrayMetadata('errors', errors);
-    err.metadata = metadata;
-    return callback(err);
-  }
+  },
+  async handler(call, callback) {
+    const { user_id: userId, email } = call.request;
 
-  const { user_id: userId, email } = call.request;
+    const existingPayment = await Payment.find({ user: userId });
+    if (existingPayment) {
+      return callback(new BadRequest('Payment exists'));
+    }
 
-  const existingPayment = await Payment.find({ user: userId });
-  if (existingPayment) {
-    return callback(new BadRequest('Payment exists'));
-  }
+    try {
+      const customer = await stripeHelper.createCustomer(userId, email);
+      const payment = new Payment({
+        _id: mongoose.Types.ObjectId(),
+        user: userId,
+        email,
+        stripe_customer: customer.id
+      });
 
-  try {
-    const customer = await stripeHelper.createCustomer(userId, email);
-    const payment = new Payment({
-      _id: mongoose.Types.ObjectId(),
-      user: userId,
-      email,
-      stripe_customer: customer.id
-    });
+      const stripe = new Stripe({
+        _id: mongoose.Types.ObjectId(),
+        payment: payment._id,
+        customer: customer.id
+      });
 
-    const stripe = new Stripe({
-      _id: mongoose.Types.ObjectId(),
-      payment: payment._id,
-      customer: customer.id
-    });
+      payment.stripe = stripe._id;
 
-    payment.stripe = stripe._id;
+      const [newPayment] = await Promise.all([
+        payment.save(),
+        stripe.save()
+      ]);
 
-    const [newPayment] = await Promise.all([
-      payment.save(),
-      stripe.save()
-    ]);
-
-    return callback(null, newPayment);
-  }
-  catch (err) {
-    return callback(err);
+      return callback(null, newPayment);
+    }
+    catch (err) {
+      return callback(err);
+    }
   }
 };
 
