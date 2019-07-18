@@ -1,13 +1,11 @@
 /* eslint-disable no-case-declarations */
 import logger from 'esther';
 import { BadRequest, InternalServerError, NotAuthorized } from 'horeb';
-import { encodeArrayMetadata } from 'grpc-utils';
 
 import i18n from '../lib/i18n';
 import { stripeHelper } from '../lib/stripe';
 import TransactionError from '../models/transactionError';
 import Payment from '../models/payment';
-import { check } from '../utils/validator';
 import { ok, respond } from '../utils/response';
 
 const api = {};
@@ -29,7 +27,6 @@ api.setupIntent = {
   },
   async handler(call, callback) {
     const { user_id: userId, customer_id: customerId } = call.request;
-
     try {
       const setupIntent = await stripeHelper.stripe.setupIntents.create({
         usage: 'on_session',

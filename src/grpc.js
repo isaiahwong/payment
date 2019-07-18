@@ -5,7 +5,8 @@ import fs from 'fs';
 import grpc from 'grpc';
 import logger from 'esther';
 import { grpcLoader, encodeArrayMetadata } from 'grpc-utils';
-import { InternalServerError, BadRequest } from 'horeb';
+import { InternalServerError, BadRequest, CustomError } from 'horeb';
+import { map, omit } from 'lodash';
 
 import i18n from './lib/i18n';
 import { check } from './utils/validator';
@@ -40,23 +41,7 @@ class GrpcServer {
         return _obj;
       }, {});
   }
-
-  // /**
-  //  * @param {Object} _service
-  //  * @returns {Object} mapped rpc handlers
-  //  */
-  // static mapControllers(_service, _handlers) {
-  //   return Object.keys(_service)
-  //     .reduce((obj, svcKey) => {
-  //       const fn = _service[svcKey].originalName;
-  //       const _obj = obj;
-  //       if (_handlers[fn] || _handlers[svcKey]) {
-  //         _obj[fn] = _handlers[fn] || _handlers[svcKey];
-  //       }
-  //       return _obj;
-  //     }, {});
-  // }
-
+  
   /**
    * @param {Object} service
    * @param {Object} controllers
@@ -66,33 +51,126 @@ class GrpcServer {
     return Object.keys(service)
       .reduce((obj, svcKey) => {
         const _obj = obj;
+        // Retrieve the camel-cased function name
         const fn = service[svcKey].originalName;
+        // checks if function definition exists
         if (controllers[fn] || controllers[svcKey]) {
-          const { validate, handler } = controllers[fn] || controllers[svcKey];
-
-          // Adds a validate middleware
-          if (validate) {
-            const middleware = (call, callback) => {
-              const errors = check(call.request, validate);
-
-              if (errors) {
-                const err = new BadRequest(i18n.t('invalidReqParams'));
-                const metadata = encodeArrayMetadata('errors', errors);
-                err.metadata = metadata;
-                return callback(err);
-              }
-              return handler(call, callback);
-            };
-            _obj[fn] = middleware;
-          }
-          else {
-            _obj[fn] = handler;
-          }
+          const handler = GrpcServer.injectMiddleware(controllers[fn] || controllers[svcKey], fn);
+          _obj[fn] = handler;
+          return _obj;
         }
         return _obj;
       }, {});
   }
 
+  static injectMiddleware(controller, fn) {
+    if (!controller) {
+      logger.warn('Missing controller');
+      return null;
+    }
+
+    if (!fn) {
+      logger.warn('Missing function definition');
+      return null;
+    }
+
+    const { validate, handler } = controller;
+
+    if (!handler) {
+      logger.warn(`No handler supplied for ${fn}`);
+      return null;
+    }
+
+    const higherOrderFn = async (call, callback) => {
+      const { metadata } = call;
+
+      let headers = metadata.get('headers-bin');
+      if (headers) {
+        try {
+          if (Buffer.isBuffer(headers)) {
+            headers = JSON.parse(headers.toString());
+          }
+        }
+        catch (err) {
+          logger.error('Invalid headers');
+          return callback(new InternalServerError());
+        }
+      }
+
+      // Adds a validate middleware
+      if (validate) {
+        const errors = check(call.request, validate);
+        if (errors) {
+          const err = new BadRequest(i18n.t('invalidReqParams'));
+          const errMeta = encodeArrayMetadata('errors', errors);
+          err.metadata = errMeta;
+          return callback(err);
+        }
+      }
+
+      return new Promise((resolve, reject) => {
+        handler(call, (err, response) => {
+          if (err) {
+            reject(err);
+          }
+          resolve(response);
+        })
+          .catch(err => reject(err)); // handle thrown errors
+      })
+        .then(res => callback(null, res))
+        .catch(err => GrpcServer.errorHandler(err, fn, headers, callback));
+    };
+
+    return higherOrderFn;
+  }
+
+  static errorHandler(err, fn, headers, callback) {
+    let responseErr = err instanceof CustomError ? err : null;
+
+    // Handle mongoose validation errors
+    if (err.name === 'ValidationError') {
+      const model = err.message.split(' ')[0];
+      responseErr = new BadRequest(`${model} validation failed`);
+      responseErr.errors = map(err.errors, mongooseErr => ({
+        message: mongooseErr.message,
+        path: mongooseErr.path,
+        value: mongooseErr.value,
+      }));
+    }
+
+    if (!responseErr
+      || responseErr.httpCode >= 500
+      || responseErr.code === InternalServerError.code) {
+      // Try to identify the error...
+      // ...
+      // Otherwise create an InternalServerError and use it
+      // we don't want to leak anything, just a generic error message
+      // Use it also in case of identified errors but with httpCode === 500
+      responseErr = new InternalServerError();
+    }
+
+    const args = {
+      rpc: fn,
+
+      // don't send sensitive information that only adds noise
+      headers: omit(headers, ['x-api-key', 'cookie', 'password', 'confirmPassword']),
+
+      httpCode: responseErr.httpCode,
+      grpcCode: responseErr.code,
+      isHandledError: responseErr.httpCode < 500,
+    };
+
+    if (err.code && err.errors) {
+      args.errors = err.errors;
+    }
+    // log the error
+    logger.error(err, args);
+    if (responseErr.errors) {
+      const metadata = encodeArrayMetadata('errors', responseErr.errors);
+      responseErr.metadata = metadata;
+    }
+    callback(responseErr);
+  }
 
   loadCoreServices(proto) {
     if (!proto) {
