@@ -58,4 +58,4 @@ yarn-error.log*
 # release docs
 release/cert/
 release/cert-manager/
-*secrets*.yaml
+release/*secrets*.yaml

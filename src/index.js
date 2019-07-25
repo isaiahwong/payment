@@ -19,6 +19,7 @@ const pkg = require('../package.json');
 logger.init({
   useFileTransport: true,
   logDirectory: path.join(__dirname, '..', 'logs'),
+  disableStackTrace: true,
   useStackDriver: process.env.ENABLE_STACKDRIVER === 'true',
   stackDriverOpt: {
     serviceName: 'payment',
@@ -27,7 +28,7 @@ logger.init({
 });
 
 setupLanguage();
-// mongoConnect();
+mongoConnect();
 
 process.on('unhandledRejection', (reason, p) => {
   logger.error('Unhandled Rejection at:', p, 'reason:', reason.stack);

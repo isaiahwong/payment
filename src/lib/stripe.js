@@ -93,7 +93,6 @@ class Stripe {
       amount,
       status,
       paid,
-      livemode,
       metadata
     } = intent;
 
@@ -108,11 +107,7 @@ class Stripe {
     const payment = await Payment.find({ stripe_customer: customerId });
 
     if (!payment) {
-      if (livemode) {
-        throw new BadRequest('No payment object found for transaction.');
-      }
-      logger.warn(`[Livemode: ${livemode}] Warning: No payment object found for transaction.`);
-      return null;
+      throw new BadRequest('No payment object found for transaction.');
     }
 
     const {

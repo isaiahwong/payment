@@ -3,11 +3,21 @@ kind: Service
 metadata:
   name: payment-service
   labels:
-    expose: 'true'
-    secured: 'false'
-    serviceType: 'resource'
-    path: 'payment'
-    version: 'v1'
+    resourceType: api-service
+  annotations:
+    config: '{
+      "expose": true,
+      "serviceType": "resource",
+      "path": "payment",
+      "apiVersion": "v1",
+      "authentication": {
+        "required": "true",
+        "exclude": [
+          "/api/v1/payment/stripe/webhook/paymentintent",
+          "/api/v1/payment/stripe/webhook/test"
+        ]
+      }
+    }'
 
 spec:
   type: ClusterIP
@@ -52,3 +62,5 @@ spec:
             name: payment-env-configmap
         - secretRef:
             name: payment-env-secrets
+        - secretRef:
+            name: mongo-payment-env-secrets

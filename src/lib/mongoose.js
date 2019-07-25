@@ -22,7 +22,7 @@ const mongooseOptions = {
   useFindAndModify: false,
   useCreateIndex: true,
 
-  dbName: process.env.DB_NAME || 'auth',
+  dbName: process.env.DB_NAME || 'payment',
   user: process.env.MONGO_INITDB_ROOT_USERNAME || 'user',
   pass: process.env.MONGO_INITDB_ROOT_PASSWORD || 'password',
   autoReconnect: true,
@@ -30,13 +30,15 @@ const mongooseOptions = {
   reconnectInterval: interval,
 };
 
+// mongoose.set('maxTimeMS', 1000);
+
 const NODE_DB_URI = __TEST__
   ? process.env.DB_URI_TEST
   : __PROD__
     ? process.env.DB_URI
     : process.env.DB_URI_DEV;
 
-export default function connect() {
+function connect() {
   mongoose.connect(NODE_DB_URI, mongooseOptions)
     .catch((err) => {
       logger.error(err);
@@ -75,5 +77,7 @@ if (MAINTENANCE_MODE !== 'true') {
  * 2 = connecting
  * 3 = disconnecting
  */
-
-export const { connection } = mongoose;
+// eslint-disable-next-line no-multi-assign
+exports = module.exports = connect;
+// eslint-disable-next-line no-multi-assign
+exports = mongoose.connection;

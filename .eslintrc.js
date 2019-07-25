@@ -30,6 +30,8 @@ module.exports = {
       },
     ],
 
+    "camelcase": 0,
+
     'function-paren-newline': 0,
     
     'import/prefer-default-export': 0,

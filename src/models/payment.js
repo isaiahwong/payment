@@ -7,7 +7,7 @@ const { Schema } = mongoose;
 
 const PaymentSchema = Schema({
   object: { type: String, default: 'payment', enum: ['payment'] },
-  user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  user: { type: String, required: true },
 
   email: {
     type: String,

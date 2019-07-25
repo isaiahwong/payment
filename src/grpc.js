@@ -4,9 +4,14 @@ import path from 'path';
 import fs from 'fs';
 import grpc from 'grpc';
 import logger from 'esther';
-import { grpcLoader, encodeArrayMetadata } from 'grpc-utils';
-import { InternalServerError, BadRequest, CustomError } from 'horeb';
+import { grpcLoader, encodeMetadata } from 'grpc-utils';
 import { map, omit } from 'lodash';
+import {
+  InternalServerError,
+  BadRequest,
+  CustomError,
+  ServiceUnavailable
+} from 'horeb';
 
 import i18n from './lib/i18n';
 import { check } from './utils/validator';
@@ -41,7 +46,7 @@ class GrpcServer {
         return _obj;
       }, {});
   }
-  
+
   /**
    * @param {Object} service
    * @param {Object} controllers
@@ -55,7 +60,8 @@ class GrpcServer {
         const fn = service[svcKey].originalName;
         // checks if function definition exists
         if (controllers[fn] || controllers[svcKey]) {
-          const handler = GrpcServer.injectMiddleware(controllers[fn] || controllers[svcKey], fn);
+          const keyInUse = controllers[fn] ? fn : svcKey;
+          const handler = GrpcServer.handle(controllers[fn] || controllers[svcKey], keyInUse);
           _obj[fn] = handler;
           return _obj;
         }
@@ -63,68 +69,66 @@ class GrpcServer {
       }, {});
   }
 
-  static injectMiddleware(controller, fn) {
+  static handle(controller, fn) {
     if (!controller) {
       logger.warn('Missing controller');
       return null;
     }
-
     if (!fn) {
       logger.warn('Missing function definition');
       return null;
     }
-
-    const { validate, handler } = controller;
-
-    if (!handler) {
+    if (!controller.handler) {
       logger.warn(`No handler supplied for ${fn}`);
       return null;
     }
 
-    const higherOrderFn = async (call, callback) => {
-      const { metadata } = call;
+    const { validate, handler } = controller;
+    return async (call, callback) => {
+      let headers = { rpc: fn, peer: call.getPeer() };
+      const startTime = GrpcServer.recordStartTime();
+      const stubCallback = (err, res) => {
+        GrpcServer.logRoute(headers, err, res, startTime);
+        callback(err, res);
+      };
 
-      let headers = metadata.get('headers-bin');
-      if (headers) {
+      const { metadata } = call;
+      const headersBin = metadata.get('headers-bin');
+      if (headersBin && headersBin[0]) {
         try {
-          if (Buffer.isBuffer(headers)) {
-            headers = JSON.parse(headers.toString());
+          if (Buffer.isBuffer(headersBin[0])) {
+            headers = {
+              ...headers,
+              ...JSON.parse(headersBin.toString())
+            };
           }
         }
         catch (err) {
-          logger.error('Invalid headers');
-          return callback(new InternalServerError());
+          logger.error('Invalid headers', err);
         }
       }
 
-      // Adds a validate middleware
-      if (validate) {
-        const errors = check(call.request, validate);
-        if (errors) {
-          const err = new BadRequest(i18n.t('invalidReqParams'));
-          const errMeta = encodeArrayMetadata('errors', errors);
-          err.metadata = errMeta;
-          return callback(err);
-        }
-      }
-
-      return new Promise((resolve, reject) => {
-        handler(call, (err, response) => {
-          if (err) {
-            reject(err);
+      try {
+        if (validate) {
+          const errors = check(call.request, validate);
+          if (errors) {
+            const badRequest = new BadRequest(i18n.t('invalidReqParams'));
+            badRequest.errors = errors;
+            throw badRequest;
           }
-          resolve(response);
-        })
-          .catch(err => reject(err)); // handle thrown errors
-      })
-        .then(res => callback(null, res))
-        .catch(err => GrpcServer.errorHandler(err, fn, headers, callback));
+        }
+        // eslint-disable-next-line no-param-reassign
+        call.headers = headers;
+        const res = await handler(call);
+        stubCallback(null, res); return;
+      }
+      catch (err) {
+        GrpcServer.errorHandler(err, fn, stubCallback, headers);
+      }
     };
-
-    return higherOrderFn;
   }
 
-  static errorHandler(err, fn, headers, callback) {
+  static errorHandler(err, fn, callback, headers) {
     let responseErr = err instanceof CustomError ? err : null;
 
     // Handle mongoose validation errors
@@ -136,6 +140,30 @@ class GrpcServer {
         path: mongooseErr.path,
         value: mongooseErr.value,
       }));
+    }
+
+    switch (err.type) {
+      case 'StripeCardError':
+        // A declined card error
+        responseErr = new BadRequest(err.message);
+        break;
+      case 'StripeRateLimitError':
+        responseErr = new ServiceUnavailable(err.message);
+        break;
+      case 'StripeInvalidRequestError':
+        responseErr = new InternalServerError(err.message);
+        break;
+      case 'StripeAPIError':
+        responseErr = new InternalServerError(err.message);
+        break;
+      case 'StripeConnectionError':
+        responseErr = new ServiceUnavailable(err.message);
+        break;
+      case 'StripeAuthenticationError':
+        responseErr = new ServiceUnavailable(err.message);
+        break;
+      default:
+        break;
     }
 
     if (!responseErr
@@ -151,10 +179,8 @@ class GrpcServer {
 
     const args = {
       rpc: fn,
-
       // don't send sensitive information that only adds noise
       headers: omit(headers, ['x-api-key', 'cookie', 'password', 'confirmPassword']),
-
       httpCode: responseErr.httpCode,
       grpcCode: responseErr.code,
       isHandledError: responseErr.httpCode < 500,
@@ -163,13 +189,83 @@ class GrpcServer {
     if (err.code && err.errors) {
       args.errors = err.errors;
     }
+
+    // eslint-disable-next-line no-param-reassign
+    err.name = `${err.name} rpc: ${err.code}`;
     // log the error
     logger.error(err, args);
+
     if (responseErr.errors) {
-      const metadata = encodeArrayMetadata('errors', responseErr.errors);
+      const metadata = encodeMetadata('errors', responseErr.errors);
       responseErr.metadata = metadata;
+      delete responseErr.errors;
     }
     callback(responseErr);
+  }
+
+  static recordStartTime() {
+    return process.hrtime();
+  }
+
+  static getResponseTime(start) {
+    if (!start) {
+      return '';
+    }
+    const end = process.hrtime(start);
+    const nanoseconds = (end[0] * 1e9) + end[1];
+    return nanoseconds / 1e6;
+  }
+
+  static logRoute(headers, error, res, _start) {
+    if (!headers) {
+      return;
+    }
+
+    const {
+      'x-real-ip': ip = '',
+      peer,
+      rpc,
+      method = '',
+      'x-original-uri': url = '',
+      'content-length': contentLength = '',
+      'user-agent': userAgent = '',
+      referer
+    } = headers;
+    const status = (error && `${error.code}:${error.httpCode}`) || '200';
+    const ms = GrpcServer.getResponseTime(_start);
+
+    const message = [
+      `[${ip || peer}]`,
+      rpc,
+      method,
+      url,
+      status,
+      contentLength, '-',
+      ms, 'ms'
+    ].join(' ');
+
+    const toBeLogged = {
+      httpRequest: {
+        status,
+        requestUrl: url,
+        requestMethod: method,
+        remoteIp: ip || peer,
+        responseSize: contentLength,
+        userAgent
+      },
+      rpc,
+      originalUrl: url,
+      // eslint-disable-next-line dot-notation
+      referer,
+      remoteAddr: ip,
+      // don't send sensitive information that only adds noise
+      headers: omit(headers, ['x-api-key', 'cookie', 'password', 'confirmPassword']),
+      body: omit(res, ['password', 'confirmPassword']),
+      responseTime: {
+        ms
+      }
+    };
+    logger.route(message, toBeLogged);
   }
 
   loadCoreServices(proto) {

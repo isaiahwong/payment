@@ -8,6 +8,8 @@
     "invalidReqParams": "Invalid parameters",
     "cardExists": "The card you have added exists",
     "stripeCustomerDoesNotExist": "Stripe customer does not exist",
+    "paymentNotFoundUserId": "No such payment for user id",
+
 
     "errorSavingNewUser": "An error occured when saving, please try again",
     "missingIdCriteria": "Missing Username or Email.",

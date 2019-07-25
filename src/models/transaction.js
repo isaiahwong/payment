@@ -37,7 +37,7 @@ const AMOUNT_PROP = {
 const TransactionSchema = Schema({
   object: { type: String, default: 'transaction', enum: ['transaction'] },
   payment: { type: Schema.Types.ObjectId, ref: 'Payment' },
-  user: { type: Schema.Types.ObjectId, ref: 'User' },
+  user: { type: String, required: true },
 
   email: {
     type: String,
