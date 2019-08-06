@@ -4,7 +4,7 @@ import i18n from '../lib/i18n';
 
 const { Schema } = mongoose;
 
-const SUPPORTED_CURRENCIES = [
+export const SUPPORTED_CURRENCIES = [
   'usd', 'sgd', 'aud', 'jpy',
   'eur', 'hkd'
 ];
@@ -12,19 +12,21 @@ const SUPPORTED_CURRENCIES = [
 const CURRENCY_PROP = {
   type: String,
   lowercase: true,
-  require: true,
-  validate: {
-    validator: function fn(v) {
-      return SUPPORTED_CURRENCIES.includes(v.toLowerCase());
-    },
-    message: () => 'Unsupported currency'
-  },
+  required: true,
+  validate: [
+    {
+      validator: function fn(v) {
+        return SUPPORTED_CURRENCIES.includes(v.toLowerCase());
+      },
+      message: () => 'Unsupported currency'
+    }
+  ],
   default: 'sgd',
 };
 
 const AMOUNT_PROP = {
   type: Number,
-  require: true,
+  required: true,
   validate: {
     validator: function fn(v) {
       return Number.isInteger(v);
@@ -41,7 +43,6 @@ const TransactionSchema = Schema({
 
   email: {
     type: String,
-    index: { unique: true },
     lowercase: true,
     email: {
       type: String,
@@ -59,23 +60,69 @@ const TransactionSchema = Schema({
 
   currency: CURRENCY_PROP,
 
-  lines: { // The individual line items that make up the invoice ITEMS.
+
+  items: { // The individual line items that make up the invoice Items.
+    id: { type: String, unique: true, required: true },
+    description: { type: String, unique: true },
+    metadata: { type: Schema.Types.Mixed },
+    quantity: { type: Number, default: 0 },
+    total: AMOUNT_PROP, // Total after discount
+    currency: {
+      ...CURRENCY_PROP,
+      validate: [
+        ...CURRENCY_PROP.validate,
+        {
+          validator: function fn(v) {
+            if (v !== this.items.currency) {
+              return false;
+            }
+            for (let i = 0; i < this.items.data.length; i += 1) {
+              if (this.items.data[0].currency !== this.items.currency) {
+                return false;
+              }
+            }
+            return true;
+          },
+          message: () => 'Currency inconsistency'
+        }
+      ]
+    },
+
     data: [
       {
-        id: { type: String, unique: true },
+        id: { type: String, unique: true, required: true },
+        name: { type: String, required: true },
         amount: AMOUNT_PROP,
         quantity: { type: Number, default: 0 },
         metadata: { type: Schema.Types.Mixed },
         currency: CURRENCY_PROP,
       }
-    ]
+    ],
   },
 
   subtotal: AMOUNT_PROP, // Total of all items and additional costs before any discount is applied.
 
-  total: AMOUNT_PROP, // Total after discount
+  total: {
+    type: Number,
+    required: true,
+    validate: [
+      {
+        validator: function fn(v) {
+          return Number.isInteger(v);
+        },
+        message: () => 'Amount should only be integers in cents'
+      },
+      {
+        validator: function fn(v) {
+          return v === this.items.total;
+        },
+        message: () => 'Total amount is different from items.total'
+      }
+    ],
+    default: 0
+  }, // Total after discount
 
-  coupon: { type: Schema.Types.ObjectId, ref: 'Coupon', required: true },
+  coupon: { type: Schema.Types.ObjectId, ref: 'Coupon' },
 
   paid: { type: Boolean, default: true, required: false },
 

@@ -1,23 +1,31 @@
 import validator from 'validator';
 
-export function check(params, contraints) {
+export function check(params, constraints) {
   const errors = [];
 
-  Object.keys(contraints).forEach((param) => {
+  if (!params) {
+    throw new Error('Missing params');
+  }
+
+  if (!constraints) {
+    throw new Error('Missing constraints');
+  }
+
+  Object.keys(constraints).forEach((param) => {
     let value = params[param] || '';
     value = value.toString();
-    const paramContraints = contraints[param];
+    const paramConstraints = constraints[param];
 
-    Object.keys(paramContraints).forEach((contraint) => {
-      if (typeof validator[contraint] !== 'function') {
+    Object.keys(paramConstraints).forEach((constraint) => {
+      if (typeof validator[constraint] !== 'function') {
         return;
       }
-      const { errorMessage = '', options = {}, isTruthyError = false } = paramContraints[contraint];
+      const { errorMessage = '', options = {}, isTruthyError = false } = paramConstraints[constraint];
 
-      if (!isTruthyError && validator[contraint](value, options)) {
+      if (!isTruthyError && validator[constraint](value, options)) {
         return;
       }
-      if (isTruthyError && !validator[contraint](value, options)) {
+      if (isTruthyError && !validator[constraint](value, options)) {
         return;
       }
       errors.push({

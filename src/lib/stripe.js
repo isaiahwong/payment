@@ -86,7 +86,7 @@ class Stripe {
       throw new BadRequest('Payment intent missing');
     }
     const {
-      _id,
+      id: intentId,
       customer: customerId,
       receipt_email,
       currency,
@@ -104,7 +104,8 @@ class Stripe {
     }
 
     let transaction = null;
-    const payment = await Payment.find({ stripe_customer: customerId });
+    const payment = await Payment.find({ stripe_customer: customerId })
+      .populate('transactions');
 
     if (!payment) {
       throw new BadRequest('No payment object found for transaction.');
@@ -119,7 +120,7 @@ class Stripe {
     }
     else {
       // eslint-disable-next-line eqeqeq
-      transaction = payment.transactions.find(t => t.stripe_payment_intent_id == _id);
+      transaction = payment.transactions.find(t => t.stripe_payment_intent_id == intentId);
     }
 
     // Create new transaction if it does not exist
@@ -138,7 +139,7 @@ class Stripe {
       await transaction.save();
       payment.transactions.push(transaction._id);
     }
-    else { // update trnsaction status
+    else { // update transaction status
       transaction.status = status;
       transaction.paid = paid;
     }

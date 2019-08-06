@@ -1,7 +1,7 @@
 {
     "languageName": "English",
-    "missingIP": "Invalid ",
-    "invalidIP": "Missing IP",
+    "invalidIP": "Invalid IP",
+    "missingIP": "Missing IP",
 
     "paymentNotFound": "No such Payment for paymentId.",
     "missingStripeToken": "Missing Stripe token",
@@ -10,6 +10,14 @@
     "stripeCustomerDoesNotExist": "Stripe customer does not exist",
     "paymentNotFoundUserId": "No such payment for user id",
 
+    "missingPaymentMethodToCharge": "Please add a payment method before charging",
+    "missingDefaultPayment": "Please select a default payment method",
+    "missingCurrency": "Missing currency",
+    "missingSubtotal": "Missing subtotal",
+    "missingTotal": "Missing total",
+
+    "invalidAmount": "Invalid amount",
+    
 
     "errorSavingNewUser": "An error occured when saving, please try again",
     "missingIdCriteria": "Missing Username or Email.",
