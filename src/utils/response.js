@@ -10,7 +10,7 @@ export function respond(status = 200, data = {}) {
 export function ok(data = {}) {
   const response = {
     success: true,
-    body: { ...data },
+    ...data,
   };
 
   return response;

@@ -27,12 +27,12 @@ const CURRENCY_PROP = {
 const AMOUNT_PROP = {
   type: Number,
   required: true,
-  validate: {
+  validate: [{
     validator: function fn(v) {
       return Number.isInteger(v);
     },
     message: () => 'Amount should only be integers in cents'
-  },
+  }],
   default: 0
 };
 
@@ -53,19 +53,40 @@ const TransactionSchema = Schema({
     },
   },
 
-  provider: { type: String, enum: ['stripe', 'paypal'], required: true },
+  provider: {
+    type: String, enum: ['stripe', 'paypal'], required: true,
+  },
 
-  stripe_payment_intent_id: { type: String, unique: true },
-  stripe_payment_intent: { type: Schema.Types.Mixed },
+  stripe_payment_intent: { type: String },
 
   currency: CURRENCY_PROP,
 
-
   items: { // The individual line items that make up the invoice Items.
-    id: { type: String, unique: true, required: true },
-    description: { type: String, unique: true },
+    id: { type: String, required: true },
+    description: { type: String },
     metadata: { type: Schema.Types.Mixed },
-    quantity: { type: Number, default: 0 },
+    total_items: {
+      type: Number,
+      default: 0,
+      validate: [{
+        validator: function fn(v) {
+          return v === this.items.data.length;
+        },
+        message: () => 'total_items must match items.data.length'
+      }],
+    },
+    quantity: {
+      type: Number,
+      default: 0,
+      validate: [{
+        validator: function fn(v) {
+          const totalQuantity = this.items.data.map(item => item.quantity)
+            .reduce((pv, quantity) => quantity + pv);
+          return totalQuantity === v;
+        },
+        message: () => 'Quantity does not much total items.data.quantity'
+      }],
+    },
     total: AMOUNT_PROP, // Total after discount
     currency: {
       ...CURRENCY_PROP,
@@ -90,8 +111,8 @@ const TransactionSchema = Schema({
 
     data: [
       {
-        id: { type: String, unique: true, required: true },
-        name: { type: String, required: true },
+        id: { type: String },
+        name: { type: String },
         amount: AMOUNT_PROP,
         quantity: { type: Number, default: 0 },
         metadata: { type: Schema.Types.Mixed },
@@ -103,15 +124,9 @@ const TransactionSchema = Schema({
   subtotal: AMOUNT_PROP, // Total of all items and additional costs before any discount is applied.
 
   total: {
-    type: Number,
-    required: true,
+    ...AMOUNT_PROP,
     validate: [
-      {
-        validator: function fn(v) {
-          return Number.isInteger(v);
-        },
-        message: () => 'Amount should only be integers in cents'
-      },
+      ...AMOUNT_PROP.validate,
       {
         validator: function fn(v) {
           return v === this.items.total;

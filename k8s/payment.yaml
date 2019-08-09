@@ -11,7 +11,7 @@ metadata:
       "path": "payment",
       "apiVersion": "v1",
       "authentication": {
-        "required": "true",
+        "required": "false",
         "exclude": [
           "/api/v1/payment/stripe/webhook/paymentintent",
           "/api/v1/payment/stripe/webhook/test"

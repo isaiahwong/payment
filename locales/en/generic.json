@@ -17,7 +17,7 @@
     "missingTotal": "Missing total",
 
     "invalidAmount": "Invalid amount",
-    
+    "unknownPaymentIntentStatus": "Unknown Stripe payment intent status",
 
     "errorSavingNewUser": "An error occured when saving, please try again",
     "missingIdCriteria": "Missing Username or Email.",

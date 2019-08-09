@@ -23,9 +23,9 @@ api.setupIntent = {
   },
   async handler(call) {
     const { user_id: userId, on_session = true } = call.request;
-    const payment = await Payment.findById(userId);
+    const payment = await Payment.findOne({ user: userId });
     if (!payment) {
-      throw new BadRequest(i18n.t('paymentNotFoundUserId'));
+      throw stripeHelper.paymentErrors.paymentNotFoundUserId;
     }
 
     const setupIntent = await stripeHelper.stripe.setupIntents.create({
@@ -63,7 +63,7 @@ api.addCard = {
   },
   async handler(call) {
     const { user_id: userId, payment_method: paymentMethod } = call.request;
-    const payment = await Payment.find({ user: userId });
+    const payment = await Payment.findOne({ user: userId });
     if (!payment) {
       throw new BadRequest();
     }
@@ -72,15 +72,15 @@ api.addCard = {
 
     const isExists = await stripeHelper.doesCardPaymentMethodExist(paymentMethod, stripeCustomer);
     if (isExists) {
-      throw new BadRequest(i18n.t('cardExists'));
+      throw stripeHelper.stripeErrors.cardExists;
     }
 
-    // eslint-disable-next-line no-unused-vars
-    const [_, customer] = await Promise.all([
-      stripeHelper.addPaymentMethod(stripeCustomer, paymentMethod),
-      stripeHelper.setDefaultPaymentMethod(stripeCustomer, paymentMethod)
-    ]);
-    const paymentMethods = await stripeHelper.stripe.paymentMethods.list(stripeCustomer);
+    await stripeHelper.addPaymentMethod(stripeCustomer, paymentMethod);
+    const customer = await stripeHelper.setDefaultPaymentMethod(stripeCustomer, paymentMethod);
+
+    const paymentMethods = await stripeHelper.stripe.paymentMethods.list(
+      { customer: stripeCustomer, type: 'card' }
+    );
     return {
       all_cards: paymentMethods.data,
       invoice_settings: customer.invoice_settings
@@ -88,7 +88,7 @@ api.addCard = {
   }
 };
 
-api.onSessionCharge = {
+api.charge = {
   validate: {
     user_id: {
       isEmpty: {
@@ -128,10 +128,14 @@ api.onSessionCharge = {
     }
   },
   async handler(call) {
-    // eslint-disable-next-line object-curly-newline
-    const { user_id: userId, email, items, total, subtotal, currency } = call.request;
+    const {
+      user_id: userId, email,
+      items, total, subtotal,
+      currency, off_session = false
+    } = call.request;
     const payment = await Payment.findOne({ user: userId })
       .populate('stripe').populate('transactions');
+
     if (!payment) {
       throw new BadRequest();
     }
@@ -142,20 +146,23 @@ api.onSessionCharge = {
         stripeHelper.stripe.customers.retrieve(payment.stripe_customer),
         await stripeHelper.stripe.paymentMethods.list({ customer: payment.stripe_customer, type: 'card' })
       ]);
+
       if (customer.invoice_settings.default_payment_method) {
         payment.stripe.default_payment_method = customer.invoice_settings.default_payment_method;
       }
       else if (paymentMethods.data && paymentMethods.data.length) {
         // We only charge the customer if he has one card.
         if (paymentMethods.data.length > 1) {
-          throw new BadRequest(i18n.t('missingDefaultPayment'));
+          throw stripeHelper.stripeErrors.missingDefaultPayment;
         }
         payment.stripe.default_payment_method = paymentMethods.data[0].id;
       }
       else {
-        throw new BadRequest(i18n.t('missingPaymentMethodToCharge'));
+        throw stripeHelper.stripeErrors.missingPaymentMethodToCharge;
       }
     }
+
+    items.total_items = items.data.length;
 
     const transaction = new Transaction({
       _id: mongoose.Types.ObjectId(),
@@ -168,33 +175,64 @@ api.onSessionCharge = {
       total,
       subtotal
     });
+    // Mongoose validation
     const errors = transaction.validateSync();
     if (errors) {
       throw errors;
     }
 
     const paymentIntent = await stripeHelper.stripe.paymentIntents.create({
-      amount: items.total,
+      amount: total,
       currency: items.currency,
       customer: payment.stripe_customer,
       payment_method: payment.stripe.default_payment_method,
+      off_session,
       metadata: {
-        transaction: JSON.stringify(transaction)
-      }
+        transaction: transaction._id.toString(),
+        user: transaction.user,
+        email: transaction.email,
+        currency: transaction.currency,
+        items_id: transaction.items.id
+      },
+      confirm: off_session,
     });
 
-    transaction.stripe_payment_intent_id = paymentIntent.id;
+    transaction.stripe_payment_intent = paymentIntent.id;
     payment.transactions.push(transaction.id);
 
-    const [newTransaction, newPayment] = await Promise.save([
+    let paymentIntentError = null;
+
+    if (off_session) {
+      switch (paymentIntent.status) {
+        case 'succeeded':
+          stripeHelper.setStatusPaid(transaction); break;
+        case 'requires_payment_method':
+          transaction.status = 'declined';
+          paymentIntentError = stripeHelper.stripeErrors.missingPaymentMethodToCharge;
+          break;
+        case 'canceled':
+          break;
+
+        default:
+          const error = stripeHelper.stripeErrors.unknownPaymentIntentStatus;
+          const transError = new TransactionError({
+            error,
+            stripe_payment_intent: paymentIntent,
+            amount: paymentIntent.amount,
+            currency: paymentIntent.currency,
+          });
+          await transError.save();
+          throw error;
+      }
+    }
+
+    if (paymentIntentError) throw paymentIntentError;
+
+    const [newTransaction] = await Promise.all([
       transaction.save(),
       payment.save()
     ]);
-
-    console.log(newTransaction);
-    console.log(newPayment);
-
-    return ok({ paymentIntent });
+    return ok({ payment_intent: paymentIntent, transaction: newTransaction.toJSON() });
   }
 };
 
@@ -287,10 +325,13 @@ api.paymentIntentWebhook = {
         intent = event.data.object;
         const message = intent.last_payment_error && intent.last_payment_error.message;
         logger.error(`Failed: ${intent.id} ${message}`);
-        // Send email
+        // TODO Send email
         return respond(500);
+      case 'payment_intent.created':
+        console.log('created')
+        return ok();
       default:
-        return null;
+        return respond(500);
     }
   }
 };
