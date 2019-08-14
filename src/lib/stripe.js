@@ -1,38 +1,30 @@
+/* eslint-disable no-param-reassign */
 /* eslint-disable class-methods-use-this */
 /* eslint-disable camelcase */
 import stripe from 'stripe';
+import mongoose from 'mongoose';
 import { InternalServerError, BadRequest } from 'horeb';
 
-import i18n from './i18n';
 import PaymentHelper from './payment';
 import Payment from '../models/payment';
 import Transaction from '../models/transaction';
+import Refund from '../models/refund';
+
+import {
+  TransactionNotFound,
+  MissingDefaultPayment,
+  MissingPaymentMethodToCharge
+} from './errors';
+import i18n from './i18n';
 
 class Stripe extends PaymentHelper {
   constructor() {
     super();
     this.stripe = stripe(
-      __PROD__ ? process.env.STRIPE_SECRET_KEY : process.env.STRIPE_SECRET_TEST
+      __PROD__
+        ? process.env.STRIPE_SECRET_KEY
+        : process.env.STRIPE_SECRET_TEST
     );
-  }
-
-  get stripeErrors() {
-    const cardExists = new BadRequest('card_exists');
-    cardExists.message = i18n.t('cardExists');
-    const missingDefaultPayment = new BadRequest('missing_default_payment');
-    missingDefaultPayment.message = i18n.t('missingDefaultPayment');
-    const missingPaymentMethodToCharge = new BadRequest('missing_payment_method_to_charge');
-    missingPaymentMethodToCharge.message = i18n.t('missingPaymentMethodToCharge');
-    const unknownPaymentIntentStatus = new InternalServerError('unknown_payment_intent_status');
-    unknownPaymentIntentStatus.message = i18n.t('unknownPaymentIntentStatus');
-    const noTransacPaymentIntent = new BadRequest('no_transac_payment_intent');
-    return {
-      cardExists,
-      missingDefaultPayment,
-      missingPaymentMethodToCharge,
-      unknownPaymentIntentStatus,
-      noTransacPaymentIntent
-    };
   }
 
   constructEvent(requestBody, signature, secret = process.env.STRIPE_ENDPOINT_SECRET) {
@@ -44,18 +36,18 @@ class Stripe extends PaymentHelper {
    * @param {String} paymentId
    * @returns {customer} customer
    */
-  async createCustomer(userId, email) {
-    if (!userId) {
-      throw new BadRequest('userId missing');
+  async createCustomer(user, email) {
+    if (!user) {
+      throw new BadRequest(i18n.t('missingUser'));
     }
     if (!email) {
-      throw new BadRequest('email missing');
+      throw new BadRequest(i18n.t('missingEmail'));
     }
 
     const customer = await this.stripe.customers.create({
       email,
       metadata: {
-        user: userId,
+        user,
       }
     });
 
@@ -80,7 +72,7 @@ class Stripe extends PaymentHelper {
     }
     const [customer, paymentMethods] = await Promise.all([
       this.stripe.customers.retrieve(payment.stripe_customer),
-      await this.stripe.paymentMethods.list({ customer: payment.stripe_customer, type: 'card' })
+      this.stripe.paymentMethods.list({ customer: payment.stripe_customer, type: 'card' })
     ]);
 
     if (customer.invoice_settings.default_payment_method) {
@@ -90,11 +82,11 @@ class Stripe extends PaymentHelper {
     if (paymentMethods.data && paymentMethods.data.length) {
       // We only charge the customer if he has one card.
       if (paymentMethods.data.length > 1) {
-        throw new BadRequest(i18n.t('missingDefaultPayment'));
+        throw new MissingDefaultPayment();
       }
       return paymentMethods.data[0].id;
     }
-    throw new BadRequest(i18n.t('missingPaymentMethodToCharge'));
+    throw new MissingPaymentMethodToCharge();
   }
 
   setDefaultPaymentMethod(customerId, paymentMethod) {
@@ -105,7 +97,7 @@ class Stripe extends PaymentHelper {
     });
   }
 
-  async doesCardPaymentMethodExist(paymentMethodId, customerId) {
+  async cardPaymentMethodExist(paymentMethodId, customerId) {
     if (!paymentMethodId || !customerId) return false;
 
     const paymentMethod = await this.stripe.paymentMethods.retrieve(paymentMethodId);
@@ -125,14 +117,50 @@ class Stripe extends PaymentHelper {
     return !!found;
   }
 
+  async createRefund(transaction) {
+    if (!(transaction instanceof Transaction)) {
+      throw new InternalServerError('Arguments passed not an instance of transaction');
+    }
+    const intent = await this.stripe.paymentIntents.retrieve(transaction.stripe_payment_intent);
+    const stripeRefund = await this.stripe.refunds.create({
+      charge: intent.charges.data[0].id,
+      reason: 'requested_by_customer',
+      metadata: {
+        transaction: transaction._id.toString(),
+        user: transaction.user,
+        email: transaction.email,
+        currency: transaction.currency,
+        items_id: transaction.items.id
+      },
+    });
+    const refund = new Refund({
+      _id: mongoose.Types.ObjectId(),
+      transaction,
+      stripe_refund: stripeRefund.id,
+      amount: stripeRefund.amount,
+      currency: transaction.currency,
+      status: stripeRefund.status,
+      reason: stripeRefund.reason
+    });
+    // Mongoose validation
+    const errors = refund.validateSync();
+    if (errors) {
+      throw errors;
+    }
+    transaction.refund = refund._id;
+    transaction.status = 'refunded';
+    return Promise.all([
+      refund.save(),
+      transaction.save()
+    ]);
+  }
+
   async processPaidPaymentIntent(intent) {
     if (!intent) {
       throw new BadRequest('Payment intent missing');
     }
     const {
       id: intentId,
-      customer: customerId,
-
       status,
       metadata
     } = intent;
@@ -142,25 +170,17 @@ class Stripe extends PaymentHelper {
     }
 
     let transaction = null;
-    const payment = await Payment.findOne({ stripe_customer: customerId })
-      .populate('transactions');
-
-    if (!payment) {
-      throw new BadRequest('No payment object found for transaction.');
-    }
-
     if (metadata && metadata.transaction) {
       transaction = await Transaction.findOne({ _id: metadata.transaction });
     }
     else {
-      // eslint-disable-next-line eqeqeq
-      transaction = payment.transactions.find(t => t.stripe_payment_intent == intentId);
+      transaction = await Transaction.findOne({ stripe_payment_intent: intentId });
     }
 
     // Inspect if transaction does not exists
     if (!transaction) {
-      // TODO, send email
-      const error = this.stripeErrors.noTransacPaymentIntent;
+      // TODO, send email to admin
+      const error = this.stripeErrors.missingTransPaymentIntent;
       error.message = `Transaction does not exist for stripe intent ${intentId}`;
       throw error;
     }
@@ -169,7 +189,41 @@ class Stripe extends PaymentHelper {
       transaction.paid = true;
     }
 
-    return payment.save();
+    return transaction.save();
+  }
+
+  async processFailedPaymentIntent(intent) {
+    if (!intent) {
+      throw new BadRequest('Payment intent missing');
+    }
+    const {
+      id: intentId,
+      last_payment_error,
+      metadata
+    } = intent;
+
+    let transaction = null;
+    if (metadata && metadata.transaction) {
+      transaction = await Transaction.findOne({ _id: metadata.transaction });
+    }
+    else {
+      transaction = await Transaction.findOne({ stripe_payment_intent: intentId });
+    }
+
+    if (!transaction) {
+      // TODO, send email to admin
+      const error = new TransactionNotFound();
+      error.message = `Transaction not found for stripe intent ${intentId}`;
+      throw error;
+    }
+
+    transaction.setStatusFailed({
+      error: last_payment_error,
+      message: last_payment_error.message,
+      stripe_code: last_payment_error.decline_code,
+    });
+
+    return transaction.save();
   }
 }
 

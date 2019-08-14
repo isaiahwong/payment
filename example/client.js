@@ -23,7 +23,7 @@ async function test() {
     console.time();
     const res = await service.addCard({
       payment_method: 'sad',
-      user_id: 'asd'
+      user: 'asd'
     }, null, { deadline: Date.now() + 3000 });
     console.timeEnd();
     logger.info(res);

@@ -3,12 +3,20 @@
     "invalidIP": "Invalid IP",
     "missingIP": "Missing IP",
 
-    "paymentNotFound": "No such Payment for paymentId.",
+    "missingUser": "Missing user",
+    "missingTransaction": "Missing transaction",
+
     "missingStripeToken": "Missing Stripe token",
     "invalidReqParams": "Invalid parameters",
     "cardExists": "The card you have added exists",
     "stripeCustomerDoesNotExist": "Stripe customer does not exist",
-    "paymentNotFoundUserId": "No such payment for user id",
+
+    "unknownProvider": "Unknown provider",
+
+    "refundNotAllowed": "Refund not allowed",
+    
+    "paymentNotFound": "No such Payment for paymentId.",
+    "transactionNotFound": "Transaction not found",
 
     "missingPaymentMethodToCharge": "Please add a payment method before charging",
     "missingDefaultPayment": "Please select a default payment method",

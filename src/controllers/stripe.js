@@ -5,27 +5,38 @@ import mongoose from 'mongoose';
 
 import i18n from '../lib/i18n';
 import { stripeHelper } from '../lib/stripe';
-import TransactionError from '../models/transactionError';
+import {
+  MissingDefaultPayment,
+  MissingPaymentMethodToCharge,
+  CardExists,
+  PaymentNotFound
+} from '../lib/errors';
 import Transaction from '../models/transaction';
 import Payment from '../models/payment';
 import { ok, respond } from '../utils/response';
 
 const api = {};
 
+/**
+ * @api {post} /api/v1/payment/s/intent/setup
+ * @apiDescription procures stripe setup intent
+ * @apiName setupIntent
+ * @apiSuccess {Object} client_secret
+ */
 api.setupIntent = {
   validate: {
-    user_id: {
+    user: {
       isEmpty: {
-        errorMessage: 'user id missing',
+        errorMessage: i18n.t('missingUser'),
         isTruthyError: true
       },
     }
   },
   async handler(call) {
-    const { user_id: userId, on_session = true } = call.request;
+    const { user: userId, on_session = true } = call.request;
     const payment = await Payment.findOne({ user: userId });
     if (!payment) {
-      throw stripeHelper.paymentErrors.paymentNotFoundUserId;
+      throw new PaymentNotFound(`Payment not found for user:  ${userId}`);
     }
 
     const setupIntent = await stripeHelper.stripe.setupIntents.create({
@@ -35,7 +46,7 @@ api.setupIntent = {
         user: userId
       }
     });
-    return { client_secret: setupIntent.client_secret };
+    return ok({ client_secret: setupIntent.client_secret });
   }
 };
 
@@ -43,7 +54,6 @@ api.setupIntent = {
  * @api {post} /api/v1/payment/s/card/add
  * @apiDescription add a stripe card to user account
  * @apiName addCard
- *
  * @apiSuccess {Object} user data
  */
 api.addCard = {
@@ -54,25 +64,25 @@ api.addCard = {
         isTruthyError: true
       },
     },
-    user_id: {
+    user: {
       isEmpty: {
-        errorMessage: 'user id missing',
+        errorMessage: 'user is missing',
         isTruthyError: true
       },
     }
   },
   async handler(call) {
-    const { user_id: userId, payment_method: paymentMethod } = call.request;
+    const { user: userId, payment_method: paymentMethod } = call.request;
     const payment = await Payment.findOne({ user: userId });
     if (!payment) {
-      throw new BadRequest();
+      throw new PaymentNotFound(`Payment not found for user: ${userId}`);
     }
 
     const { stripe_customer: stripeCustomer } = payment;
 
-    const isExists = await stripeHelper.doesCardPaymentMethodExist(paymentMethod, stripeCustomer);
+    const isExists = await stripeHelper.cardPaymentMethodExist(paymentMethod, stripeCustomer);
     if (isExists) {
-      throw stripeHelper.stripeErrors.cardExists;
+      throw new CardExists();
     }
 
     await stripeHelper.addPaymentMethod(stripeCustomer, paymentMethod);
@@ -81,18 +91,26 @@ api.addCard = {
     const paymentMethods = await stripeHelper.stripe.paymentMethods.list(
       { customer: stripeCustomer, type: 'card' }
     );
-    return {
+    return ok({
       all_cards: paymentMethods.data,
       invoice_settings: customer.invoice_settings
-    };
+    });
   }
 };
 
-api.charge = {
+/**
+ * @api {post} /api/v1/payment/s/charge `http might be deprecated`
+ * @apiDescription Performs stripe charges.
+ * @apiName stripeCharge
+ * @apiGroup Payment
+ *
+ * @apiSuccess {Object} payment_intent transaction
+ */
+api.stripeCharge = {
   validate: {
-    user_id: {
+    user: {
       isEmpty: {
-        errorMessage: 'user id missing',
+        errorMessage: i18n.t('missingUser'),
         isTruthyError: true
       },
     },
@@ -129,22 +147,21 @@ api.charge = {
   },
   async handler(call) {
     const {
-      user_id: userId, email,
+      user: userId, email,
       items, total, subtotal,
       currency, off_session = false
     } = call.request;
     const payment = await Payment.findOne({ user: userId })
       .populate('stripe').populate('transactions');
-
     if (!payment) {
-      throw new BadRequest();
+      throw new PaymentNotFound(`Payment not found for user: ${userId}`);
     }
 
     // Try to retrieve payment method
     if (!payment.stripe.default_payment_method) {
       const [customer, paymentMethods] = await Promise.all([
         stripeHelper.stripe.customers.retrieve(payment.stripe_customer),
-        await stripeHelper.stripe.paymentMethods.list({ customer: payment.stripe_customer, type: 'card' })
+        stripeHelper.stripe.paymentMethods.list({ customer: payment.stripe_customer, type: 'card' })
       ]);
 
       if (customer.invoice_settings.default_payment_method) {
@@ -153,18 +170,19 @@ api.charge = {
       else if (paymentMethods.data && paymentMethods.data.length) {
         // We only charge the customer if he has one card.
         if (paymentMethods.data.length > 1) {
-          throw stripeHelper.stripeErrors.missingDefaultPayment;
+          throw new MissingDefaultPayment();
         }
         payment.stripe.default_payment_method = paymentMethods.data[0].id;
       }
       else {
-        throw stripeHelper.stripeErrors.missingPaymentMethodToCharge;
+        throw new MissingPaymentMethodToCharge();
       }
     }
 
+    // set items total_items to data's length
     items.total_items = items.data.length;
 
-    const transaction = new Transaction({
+    let transaction = new Transaction({
       _id: mongoose.Types.ObjectId(),
       payment: payment._id,
       user: userId,
@@ -181,61 +199,63 @@ api.charge = {
       throw errors;
     }
 
-    const paymentIntent = await stripeHelper.stripe.paymentIntents.create({
-      amount: total,
-      currency: items.currency,
-      customer: payment.stripe_customer,
-      payment_method: payment.stripe.default_payment_method,
-      off_session,
-      metadata: {
-        transaction: transaction._id.toString(),
-        user: transaction.user,
-        email: transaction.email,
-        currency: transaction.currency,
-        items_id: transaction.items.id
-      },
-      confirm: off_session,
-    });
+    payment.transactions.push(transaction.id);
+    [transaction] = await Promise.all([
+      transaction.save(),
+      payment.save()
+    ]);
+
+    let paymentIntent = null;
+
+    try {
+      paymentIntent = await stripeHelper.stripe.paymentIntents.create({
+        amount: total,
+        currency: items.currency,
+        customer: payment.stripe_customer,
+        payment_method: payment.stripe.default_payment_method,
+        off_session,
+        metadata: {
+          transaction: transaction._id.toString(),
+          user: transaction.user,
+          email: transaction.email,
+          currency: transaction.currency,
+          items_id: transaction.items.id
+        },
+        confirm: off_session,
+      });
+    }
+    catch (stripeErr) {
+      transaction.setStatusFailed({
+        error: stripeErr.raw,
+        message: stripeErr.message,
+        stripe_code: stripeErr.raw.decline_code,
+      });
+      await transaction.save();
+
+      throw stripeErr;
+    }
 
     transaction.stripe_payment_intent = paymentIntent.id;
-    payment.transactions.push(transaction.id);
-
-    let paymentIntentError = null;
 
     if (off_session) {
       switch (paymentIntent.status) {
         case 'succeeded':
-          stripeHelper.setStatusPaid(transaction); break;
-        case 'requires_payment_method':
-          transaction.status = 'declined';
-          paymentIntentError = stripeHelper.stripeErrors.missingPaymentMethodToCharge;
-          break;
-        case 'canceled':
-          break;
-
+          transaction.setStatusPaid(); break;
         default:
           const error = stripeHelper.stripeErrors.unknownPaymentIntentStatus;
-          const transError = new TransactionError({
+          transaction.setStatusFailed({
             error,
-            stripe_payment_intent: paymentIntent,
-            amount: paymentIntent.amount,
-            currency: paymentIntent.currency,
+            message: error.message,
           });
-          await transError.save();
           throw error;
       }
     }
 
-    if (paymentIntentError) throw paymentIntentError;
+    transaction = await transaction.save();
 
-    const [newTransaction] = await Promise.all([
-      transaction.save(),
-      payment.save()
-    ]);
-    return ok({ payment_intent: paymentIntent, transaction: newTransaction.toJSON() });
+    return ok({ payment_intent: paymentIntent, transaction: transaction.toJSON() });
   }
 };
-
 
 api.testStripeWebhook = {
   async handler(call) {
@@ -274,27 +294,6 @@ api.testStripeWebhook = {
   }
 };
 
-async function paymentSucceed(intent) {
-  try {
-    const payment = await stripeHelper.processPaidPaymentIntent(intent);
-    // Stripe Test Webhook
-    if (!payment) {
-      throw new InternalServerError('Error processing transaction');
-    }
-    return ok();
-  }
-  catch (error) {
-    const transError = new TransactionError({
-      error,
-      stripe_payment_intent: intent,
-      amount: intent.amount,
-      currency: intent.currency,
-    });
-    transError.save().catch(err => logger.error(err));
-    throw error;
-  }
-}
-
 api.paymentIntentWebhook = {
   async handler(call) {
     const { headers } = call;
@@ -316,23 +315,19 @@ api.paymentIntentWebhook = {
       // invalid signature
       throw new InternalServerError(err.message);
     }
+    intent = event.data.object;
 
     switch (event.type) {
       case 'payment_intent.succeeded':
-        intent = event.data.object;
-        return paymentSucceed(intent);
+        await stripeHelper.processPaidPaymentIntent(intent); break;
       case 'payment_intent.payment_failed':
-        intent = event.data.object;
-        const message = intent.last_payment_error && intent.last_payment_error.message;
-        logger.error(`Failed: ${intent.id} ${message}`);
-        // TODO Send email
-        return respond(500);
+        await stripeHelper.processFailedPaymentIntent(intent); break;
       case 'payment_intent.created':
-        console.log('created')
-        return ok();
+        break;
       default:
         return respond(500);
     }
+    return ok();
   }
 };
 

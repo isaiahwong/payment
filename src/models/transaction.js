@@ -1,45 +1,16 @@
 import mongoose from 'mongoose';
 import validator from 'validator';
 import i18n from '../lib/i18n';
+import { CURRENCY_PROP, AMOUNT_PROP } from './type';
 
 const { Schema } = mongoose;
-
-export const SUPPORTED_CURRENCIES = [
-  'usd', 'sgd', 'aud', 'jpy',
-  'eur', 'hkd'
-];
-
-const CURRENCY_PROP = {
-  type: String,
-  lowercase: true,
-  required: true,
-  validate: [
-    {
-      validator: function fn(v) {
-        return SUPPORTED_CURRENCIES.includes(v.toLowerCase());
-      },
-      message: () => 'Unsupported currency'
-    }
-  ],
-  default: 'sgd',
-};
-
-const AMOUNT_PROP = {
-  type: Number,
-  required: true,
-  validate: [{
-    validator: function fn(v) {
-      return Number.isInteger(v);
-    },
-    message: () => 'Amount should only be integers in cents'
-  }],
-  default: 0
-};
 
 const TransactionSchema = Schema({
   object: { type: String, default: 'transaction', enum: ['transaction'] },
   payment: { type: Schema.Types.ObjectId, ref: 'Payment' },
   user: { type: String, required: true },
+
+  refund: { type: Schema.Types.ObjectId, ref: 'Refund' },
 
   email: {
     type: String,
@@ -54,10 +25,32 @@ const TransactionSchema = Schema({
   },
 
   provider: {
-    type: String, enum: ['stripe', 'paypal'], required: true,
+    type: String,
+    enum: ['stripe', 'paypal'],
+    required: true,
+    validate: [
+      {
+        validator: function fn(v) {
+          return v === 'stripe'
+            ? !!this.stripe_payment_intent
+            : true;
+        },
+        message: () => 'transaction.provider stripe requires transaction.stripe_payment_intent'
+      },
+      {
+        validator: function fn(v) {
+          return v === 'paypal_id'
+            ? !!this.paypal_id
+            : true;
+        },
+        message: () => 'transaction.provider paypal requires transaction.paypal_id'
+      }
+    ],
   },
 
-  stripe_payment_intent: { type: String },
+  paypal_id: { type: String, unique: true },
+
+  stripe_payment_intent: { type: String, unique: true },
 
   currency: CURRENCY_PROP,
 
@@ -139,18 +132,55 @@ const TransactionSchema = Schema({
 
   coupon: { type: Schema.Types.ObjectId, ref: 'Coupon' },
 
-  paid: { type: Boolean, default: true, required: false },
+  paid: {
+    type: Boolean,
+    default: false,
+    required: false,
+    validate: [
+      {
+        validator: function fn(v) {
+          return (v && this.status === 'succeeded')
+            || (!v && this.status !== 'succeeded');
+        },
+        message: () => 'Paid can only be true when status is successful'
+      }
+    ]
+  },
 
   status: {
     type: String,
     default: 'pending',
     enum: ['succeeded', 'declined', 'refunded', 'pending'],
-    require: true
+    required: true,
+    validate: [
+      {
+        validator: function fn(v) {
+          return v === 'declined'
+            ? !!this.transaction_error
+            : true;
+        },
+        message: () => 'transaction.status declined requires transaction.transaction_error'
+      },
+      {
+        validator: function fn(v) {
+          return v === 'refunded'
+            ? !!this.refund
+            : true;
+        },
+        message: () => 'transaction.status refunded requires transaction.refund'
+      }
+    ]
+  },
+
+  transaction_error: {
+    error: { type: Schema.Types.Mixed }, // error stack
+    message: { type: String },
+    stripe_error_code: { type: String },
   },
 
   ip: { type: String, select: false },
   updated: { type: Date, select: false },
-  created: { type: Date, select: false }
+  created: { type: Date, select: false },
 });
 
 TransactionSchema.pre('save', function cb(next) {
@@ -166,6 +196,17 @@ TransactionSchema.methods.toJSON = function toJSON() {
   obj.id = obj._id;
   delete obj._id;
   return obj;
+};
+
+TransactionSchema.methods.setStatusPaid = function setStatusPaid() {
+  this.paid = true;
+  this.status = 'succeeded';
+};
+
+TransactionSchema.methods.setStatusFailed = function setStatusFailed(transactionError) {
+  this.transaction_error = transactionError;
+  this.paid = false;
+  this.status = 'declined';
 };
 
 /**

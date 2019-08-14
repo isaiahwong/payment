@@ -160,7 +160,7 @@ class GrpcServer {
         responseErr = new ServiceUnavailable(err.message);
         break;
       case 'StripeAuthenticationError':
-        responseErr = new ServiceUnavailable(err.message);
+        responseErr = new BadRequest(err.message);
         break;
       default:
         break;
@@ -195,11 +195,9 @@ class GrpcServer {
     // log the error
     logger.error(err, args);
 
-    if (responseErr.errors) {
-      const metadata = encodeMetadata('errors', responseErr.errors);
-      responseErr.metadata = metadata;
-      delete responseErr.errors;
-    }
+    const metadata = encodeMetadata('object', responseErr);
+    responseErr.metadata = metadata;
+
     callback(responseErr);
   }
 
