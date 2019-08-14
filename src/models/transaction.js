@@ -173,7 +173,8 @@ const TransactionSchema = Schema({
   },
 
   transaction_error: {
-    error: { type: Schema.Types.Mixed }, // error stack
+    error: { type: String }, // error stack
+    type: { type: String },
     message: { type: String },
     stripe_error_code: { type: String },
   },

@@ -48,6 +48,13 @@ RefundSchema.pre('save', function cb(next) {
   next();
 });
 
+RefundSchema.methods.toJSON = function toJSON() {
+  const obj = this.toObject();
+  obj.id = obj._id;
+  delete obj._id;
+  return obj;
+};
+
 /**
  * Expose RefundSchema model
  */

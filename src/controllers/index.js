@@ -72,7 +72,7 @@ api.createPayment = {
       stripe.save()
     ]);
 
-    return ok({ newPayment });
+    return ok({ payment: newPayment.toJSON() });
   }
 };
 
@@ -99,7 +99,7 @@ api.retrievePayment = {
     if (!payment) {
       throw new PaymentNotFound(`Payment not found for user: ${user}`);
     }
-    return ok({ payment });
+    return ok({ payment: payment.toJSON() });
   }
 };
 
@@ -146,7 +146,7 @@ api.refund = {
       default:
         throw new UnknownProvider();
     }
-    return ok({ refund, transaction });
+    return ok({ refund: refund.toJSON(), transaction: transaction.toJSON() });
   }
 };
 

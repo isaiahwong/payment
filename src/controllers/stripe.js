@@ -9,7 +9,8 @@ import {
   MissingDefaultPayment,
   MissingPaymentMethodToCharge,
   CardExists,
-  PaymentNotFound
+  PaymentNotFound,
+  UnknownPaymentIntentStatus
 } from '../lib/errors';
 import Transaction from '../models/transaction';
 import Payment from '../models/payment';
@@ -226,7 +227,8 @@ api.stripeCharge = {
     }
     catch (stripeErr) {
       transaction.setStatusFailed({
-        error: stripeErr.raw,
+        error: stripeErr.raw.name,
+        type: stripeErr.type,
         message: stripeErr.message,
         stripe_code: stripeErr.raw.decline_code,
       });
@@ -242,9 +244,10 @@ api.stripeCharge = {
         case 'succeeded':
           transaction.setStatusPaid(); break;
         default:
-          const error = stripeHelper.stripeErrors.unknownPaymentIntentStatus;
+          const error = new UnknownPaymentIntentStatus();
           transaction.setStatusFailed({
-            error,
+            error: error.name,
+            type: error.type,
             message: error.message,
           });
           throw error;
