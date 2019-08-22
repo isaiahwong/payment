@@ -4,28 +4,28 @@ import i18n from './i18n';
 export class CardExists extends BadRequest {
   constructor() {
     super(i18n.t('cardExists'));
-    this.type = 'card_exists';
+    this.type = 'stripe_card_exists';
   }
 }
 
 export class MissingDefaultPayment extends BadRequest {
   constructor() {
     super(i18n.t('missingDefaultPayment'));
-    this.type = 'missing_default_payment';
+    this.type = 'stripe_missing_default_payment';
   }
 }
 
 export class MissingPaymentMethodToCharge extends BadRequest {
   constructor() {
     super(i18n.t('missingPaymentMethodToCharge'));
-    this.type = 'missing_payment_method_to_charge';
+    this.type = 'stripe_missing_payment_method_to_charge';
   }
 }
 
 export class UnknownPaymentIntentStatus extends InternalServerError {
   constructor() {
     super(i18n.t('unknownPaymentIntentStatus'));
-    this.type = 'unknown_payment_intent_status';
+    this.type = 'stripe_unknown_payment_intent_status';
   }
 }
 
@@ -54,5 +54,12 @@ export class UnknownProvider extends InternalServerError {
   constructor(msg) {
     super(msg || i18n.t('unknownProvider'));
     this.type = 'unknown_provider';
+  }
+}
+
+export class PaypalInvalidToken extends InternalServerError {
+  constructor(msg) {
+    super(msg || i18n.t('unknownProvider'));
+    this.type = 'paypal_invalid_token';
   }
 }

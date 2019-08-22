@@ -228,8 +228,6 @@ class Stripe extends PaymentHelper {
 }
 
 const stripeHelper = new Stripe();
-const { stripeErrors } = stripeHelper;
-const { paymentErrors } = stripeHelper;
 
 export default Stripe;
-export { stripeHelper, stripeErrors, paymentErrors };
+export { stripeHelper };

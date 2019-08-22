@@ -30,12 +30,11 @@ logger.init({
 setupLanguage();
 mongoConnect();
 
-process.on('unhandledRejection', (reason, p) => {
-  logger.error('Unhandled Rejection at:', p, 'reason:', reason.stack);
+process.on('unhandledRejection', (reason) => {
+  logger.error(`Unhandled Rejection at: ${reason} ${reason.stack}`);
   // send entire app down. k8s will restart it
   process.exit(1);
 });
-
 const grpcServer = new GrpcServer();
 
 grpcServer.listen();
