@@ -1,0 +1,6 @@
+{
+  "paypalReqAccessTokenFailed": "Fail to request access token",
+  "paypalMissingOrderId": "Paypal order id is missing",
+  "paypalMissingPayerId": "Paypal payer id is missing"
+
+}

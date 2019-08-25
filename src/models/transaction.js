@@ -28,47 +28,50 @@ const TransactionSchema = Schema({
     type: String,
     enum: ['stripe', 'paypal'],
     required: true,
-    validate: [
-      {
-        validator: function fn(v) {
-          return v === 'stripe'
-            ? !!this.stripe_payment_intent
-            : true;
-        },
-        message: () => 'transaction.provider stripe requires transaction.stripe_payment_intent'
-      },
-      {
-        validator: function fn(v) {
-          return v === 'paypal_id'
-            ? !!this.paypal_id
-            : true;
-        },
-        message: () => 'transaction.provider paypal requires transaction.paypal_id'
-      }
-    ],
+    // validate: [
+    //   {
+    //     validator: function fn(v) {
+    //       return v === 'stripe'
+    //         ? !!this.stripe_payment_intent
+    //         : true;
+    //     },
+    //     message: () => 'transaction.provider stripe requires transaction.stripe_payment_intent'
+    //   },
+    //   {
+    //     validator: function fn(v) {
+    //       return v === 'paypal_id'
+    //         ? !!this.paypal_id
+    //         : true;
+    //     },
+    //     message: () => 'transaction.provider paypal requires transaction.paypal_id'
+    //   }
+    // ],
   },
 
-  paypal_id: { type: String, unique: true },
+  paypal_order_id: { type: String, unique: true, sparse: true },
 
-  stripe_payment_intent: { type: String, unique: true },
+  stripe_payment_intent: { type: String, unique: true, sparse: true },
 
   currency: CURRENCY_PROP,
 
   items: { // The individual line items that make up the invoice Items.
-    id: { type: String, required: true },
+    id: { type: String, required: true }, // External id reference from API caller
     description: { type: String },
     metadata: { type: Schema.Types.Mixed },
+
+    data: [
+      {
+        id: { type: String, required: true },
+        name: { type: String, required: true },
+        description: { type: String },
+        amount: AMOUNT_PROP,
+        quantity: { type: Number, default: 0 },
+        metadata: { type: Schema.Types.Mixed },
+        currency: CURRENCY_PROP,
+      }
+    ],
+
     total_items: {
-      type: Number,
-      default: 0,
-      validate: [{
-        validator: function fn(v) {
-          return v === this.items.data.length;
-        },
-        message: () => 'total_items must match items.data.length'
-      }],
-    },
-    quantity: {
       type: Number,
       default: 0,
       validate: [{
@@ -77,10 +80,29 @@ const TransactionSchema = Schema({
             .reduce((pv, quantity) => quantity + pv);
           return totalQuantity === v;
         },
-        message: () => 'Quantity does not much total items.data.quantity'
+        message: () => 'total_items does not much the total items.data.quantity add up'
       }],
     },
-    total: AMOUNT_PROP, // Total after discount
+
+    subtotal: { // Total of all items and additional costs before any discount is applied.
+      ...AMOUNT_PROP,
+      validate: [
+        ...AMOUNT_PROP.validate,
+        {
+          validator: function fn(v) {
+            const subtotal = this.items.data
+              .reduce((pv, item) => (pv + (item.amount * item.quantity)), 0);
+            return subtotal === v;
+          },
+          message: () => 'Subtotal amount mismatch, Total amount, should equal n items item.amount * item.quantity'
+        },
+      ]
+    },
+    shipping: AMOUNT_PROP,
+    tax: AMOUNT_PROP,
+    shipping_discount: AMOUNT_PROP,
+    discount: AMOUNT_PROP,
+
     currency: {
       ...CURRENCY_PROP,
       validate: [
@@ -101,34 +123,24 @@ const TransactionSchema = Schema({
         }
       ]
     },
-
-    data: [
-      {
-        id: { type: String },
-        name: { type: String },
-        amount: AMOUNT_PROP,
-        quantity: { type: Number, default: 0 },
-        metadata: { type: Schema.Types.Mixed },
-        currency: CURRENCY_PROP,
-      }
-    ],
   },
 
-  subtotal: AMOUNT_PROP, // Total of all items and additional costs before any discount is applied.
-
-  total: {
+  total: { // Total after discount, shipping, etc
     ...AMOUNT_PROP,
     validate: [
       ...AMOUNT_PROP.validate,
       {
         validator: function fn(v) {
-          return v === this.items.total;
+          const charges = this.items.shipping + this.items.tax;
+          const discounts = this.items.discount + this.items.shipping_discount;
+          const total = (this.items.subtotal + charges) - discounts;
+
+          return total === v;
         },
-        message: () => 'Total amount is different from items.total'
-      }
-    ],
-    default: 0
-  }, // Total after discount
+        message: () => 'Total amount, should equal subtotal + tax + shipping - shipping_discount - discount'
+      },
+    ]
+  },
 
   coupon: { type: Schema.Types.ObjectId, ref: 'Coupon' },
 
@@ -189,6 +201,7 @@ TransactionSchema.pre('save', function cb(next) {
   const currentDate = Date.now();
   this.updated = currentDate;
   if (!this.created) this.created = currentDate;
+
   next();
 });
 

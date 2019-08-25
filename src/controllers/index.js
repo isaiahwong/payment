@@ -11,8 +11,7 @@ import {
   UnknownProvider
 } from '../lib/errors';
 // eslint-disable-next-line import/no-named-as-default
-import { stripeHelper } from '../lib/stripe';
-import Stripe from '../models/stripe';
+import Stripe from '../lib/stripe';
 import Payment from '../models/payment';
 import Transaction from '../models/transaction';
 
@@ -51,26 +50,17 @@ api.createPayment = {
       throw new BadRequest('Payment exists');
     }
 
-    const customer = await stripeHelper.createCustomer(user, email);
+    const customer = await Stripe.createCustomer(user, email);
     const payment = new Payment({
       _id: mongoose.Types.ObjectId(),
       user,
       email,
-      stripe_customer: customer.id
+      stripe: {
+        customer: customer.id
+      }
     });
 
-    const stripe = new Stripe({
-      _id: mongoose.Types.ObjectId(),
-      payment: payment._id,
-      customer: customer.id
-    });
-
-    payment.stripe = stripe._id;
-
-    const [newPayment] = await Promise.all([
-      payment.save(),
-      stripe.save()
-    ]);
+    const newPayment = await payment.save();
 
     return ok({ payment: newPayment.toJSON() });
   }
@@ -140,7 +130,7 @@ api.refund = {
 
     switch (transaction.provider) {
       case 'stripe':
-        [refund, transaction] = await stripeHelper.createRefund(transaction); break;
+        [refund, transaction] = await Stripe.createRefund(transaction); break;
       case 'paypal':
         break;
       default:

@@ -62,6 +62,7 @@ class GrpcServer {
         if (controllers[fn] || controllers[svcKey]) {
           const keyInUse = controllers[fn] ? fn : svcKey;
           const handler = GrpcServer.handle(controllers[fn] || controllers[svcKey], keyInUse);
+          if (!handler) return _obj;
           _obj[fn] = handler;
           return _obj;
         }

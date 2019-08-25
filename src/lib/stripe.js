@@ -27,6 +27,14 @@ class Stripe extends PaymentHelper {
     );
   }
 
+  get _class() {
+    return Stripe;
+  }
+
+  instance(options) {
+    return new Stripe(options);
+  }
+
   constructEvent(requestBody, signature, secret = process.env.STRIPE_ENDPOINT_SECRET) {
     return this.stripe.webhooks.constructEvent(requestBody, signature, secret);
   }
@@ -66,13 +74,17 @@ class Stripe extends PaymentHelper {
     );
   }
 
+  async mergeDuplicateCustomers() {
+    // TODO
+  }
+
   async retrieveDefaultPayment(payment) {
     if (!(payment instanceof Payment)) {
       throw new InternalServerError('Not an instance of Payment');
     }
     const [customer, paymentMethods] = await Promise.all([
-      this.stripe.customers.retrieve(payment.stripe_customer),
-      this.stripe.paymentMethods.list({ customer: payment.stripe_customer, type: 'card' })
+      this.stripe.customers.retrieve(payment.stripe.customer),
+      this.stripe.paymentMethods.list({ customer: payment.stripe.customer, type: 'card' })
     ]);
 
     if (customer.invoice_settings.default_payment_method) {
@@ -180,7 +192,7 @@ class Stripe extends PaymentHelper {
     // Inspect if transaction does not exists
     if (!transaction) {
       // TODO, send email to admin
-      const error = this.stripeErrors.missingTransPaymentIntent;
+      const error = new TransactionNotFound();
       error.message = `Transaction does not exist for stripe intent ${intentId}`;
       throw error;
     }
@@ -227,7 +239,4 @@ class Stripe extends PaymentHelper {
   }
 }
 
-const stripeHelper = new Stripe();
-
-export default Stripe;
-export { stripeHelper };
+export default new Stripe();

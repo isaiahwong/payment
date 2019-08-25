@@ -25,8 +25,15 @@ const PaymentSchema = Schema({
 
   default_provider: { type: String, enum: ['stripe', 'paypal'] },
 
-  stripe_customer: { type: String },
-  stripe: { type: Schema.Types.ObjectId, ref: 'Stripe' },
+  stripe: {
+    customer: { type: String, default: '' },
+    default_payment_method: { type: String },
+  },
+
+  paypal: {
+    payer: { type: String, default: '' }
+  },
+
   transactions: [{ type: Schema.Types.ObjectId, ref: 'Transaction' }],
   updated: { type: Date, select: false },
   created: { type: Date, select: false }

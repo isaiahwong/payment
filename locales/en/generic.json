@@ -13,8 +13,6 @@
 
     "unknownProvider": "Unknown provider",
     
-    "paypalInvalidToken": "Authorization header does not have valid access token",
-
     "refundNotAllowed": "Refund not allowed",
     
     "paymentNotFound": "No such Payment for paymentId.",

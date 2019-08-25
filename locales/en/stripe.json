@@ -1,0 +1,5 @@
+{
+  "stripeMissingToken": "Missing Stripe token",
+  "stripeCardExists": "The card you have added exists",
+  "stripeCustomerDoesNotExist": "Stripe customer does not exist"
+}

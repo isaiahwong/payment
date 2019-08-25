@@ -4,7 +4,7 @@ import { BadRequest, InternalServerError } from 'horeb';
 import mongoose from 'mongoose';
 
 import i18n from '../lib/i18n';
-import { stripeHelper } from '../lib/stripe';
+import Stripe from '../lib/stripe';
 import {
   MissingDefaultPayment,
   MissingPaymentMethodToCharge,
@@ -24,7 +24,7 @@ const api = {};
  * @apiName setupIntent
  * @apiSuccess {Object} client_secret
  */
-api.setupIntent = {
+api.stripeSetupIntent = {
   validate: {
     user: {
       isEmpty: {
@@ -40,9 +40,9 @@ api.setupIntent = {
       throw new PaymentNotFound(`Payment not found for user:  ${userId}`);
     }
 
-    const setupIntent = await stripeHelper.stripe.setupIntents.create({
+    const setupIntent = await Stripe.stripe.setupIntents.create({
       usage: on_session ? 'on_session' : 'off_session',
-      customer: payment.stripe_customer,
+      customer: payment.stripe.customer,
       metadata: {
         user: userId
       }
@@ -57,7 +57,7 @@ api.setupIntent = {
  * @apiName addCard
  * @apiSuccess {Object} user data
  */
-api.addCard = {
+api.StripeAddCard = {
   validate: {
     payment_method: {
       isEmpty: {
@@ -79,19 +79,25 @@ api.addCard = {
       throw new PaymentNotFound(`Payment not found for user: ${userId}`);
     }
 
-    const { stripe_customer: stripeCustomer } = payment;
+    const { stripe: { customer: stripeCustomer } } = payment;
 
-    const isExists = await stripeHelper.cardPaymentMethodExist(paymentMethod, stripeCustomer);
+    const isExists = await Stripe.cardPaymentMethodExist(paymentMethod, stripeCustomer);
     if (isExists) {
       throw new CardExists();
     }
 
-    await stripeHelper.addPaymentMethod(stripeCustomer, paymentMethod);
-    const customer = await stripeHelper.setDefaultPaymentMethod(stripeCustomer, paymentMethod);
+    await Stripe.addPaymentMethod(stripeCustomer, paymentMethod);
 
-    const paymentMethods = await stripeHelper.stripe.paymentMethods.list(
+    payment.stripe.default_payment_method = paymentMethod;
+    const [customer] = await Promise.all([
+      Stripe.setDefaultPaymentMethod(stripeCustomer, paymentMethod),
+      payment.save()
+    ]);
+
+    const paymentMethods = await Stripe.stripe.paymentMethods.list(
       { customer: stripeCustomer, type: 'card' }
     );
+
     return ok({
       all_cards: paymentMethods.data,
       invoice_settings: customer.invoice_settings
@@ -133,12 +139,6 @@ api.stripeCharge = {
         isTruthyError: true
       }
     },
-    subtotal: {
-      isEmpty: {
-        errorMessage: i18n.t('missingSubtotal'),
-        isTruthyError: true
-      },
-    },
     total: {
       isEmpty: {
         errorMessage: i18n.t('missingTotal'),
@@ -149,11 +149,12 @@ api.stripeCharge = {
   async handler(call) {
     const {
       user: userId, email,
-      items, total, subtotal,
-      currency, off_session = false
+      items, total, currency,
+      off_session = false
     } = call.request;
+
     const payment = await Payment.findOne({ user: userId })
-      .populate('stripe').populate('transactions');
+      .populate('transactions');
     if (!payment) {
       throw new PaymentNotFound(`Payment not found for user: ${userId}`);
     }
@@ -161,8 +162,8 @@ api.stripeCharge = {
     // Try to retrieve payment method
     if (!payment.stripe.default_payment_method) {
       const [customer, paymentMethods] = await Promise.all([
-        stripeHelper.stripe.customers.retrieve(payment.stripe_customer),
-        stripeHelper.stripe.paymentMethods.list({ customer: payment.stripe_customer, type: 'card' })
+        Stripe.stripe.customers.retrieve(payment.stripe.customer),
+        Stripe.stripe.paymentMethods.list({ customer: payment.stripe.customer, type: 'card' })
       ]);
 
       if (customer.invoice_settings.default_payment_method) {
@@ -180,9 +181,6 @@ api.stripeCharge = {
       }
     }
 
-    // set items total_items to data's length
-    items.total_items = items.data.length;
-
     let transaction = new Transaction({
       _id: mongoose.Types.ObjectId(),
       payment: payment._id,
@@ -191,8 +189,7 @@ api.stripeCharge = {
       provider: 'stripe',
       currency,
       items,
-      total,
-      subtotal
+      total
     });
     // Mongoose validation
     const errors = transaction.validateSync();
@@ -209,10 +206,10 @@ api.stripeCharge = {
     let paymentIntent = null;
 
     try {
-      paymentIntent = await stripeHelper.stripe.paymentIntents.create({
+      paymentIntent = await Stripe.stripe.paymentIntents.create({
         amount: total,
         currency: items.currency,
-        customer: payment.stripe_customer,
+        customer: payment.stripe.customer,
         payment_method: payment.stripe.default_payment_method,
         off_session,
         metadata: {
@@ -220,9 +217,14 @@ api.stripeCharge = {
           user: transaction.user,
           email: transaction.email,
           currency: transaction.currency,
-          items_id: transaction.items.id
+          items_id: transaction.items.id,
+          subtotal: transaction.items.subtotal,
+          shipping: transaction.items.shipping,
+          tax: transaction.items.tax,
+          shipping_discount: transaction.items.shipping_discount,
+          discount: transaction.items.discount
         },
-        confirm: off_session,
+        confirm: true,
       });
     }
     catch (stripeErr) {
@@ -260,7 +262,7 @@ api.stripeCharge = {
   }
 };
 
-api.testStripeWebhook = {
+api.stripeTestWebhook = {
   async handler(call) {
     const { headers } = call;
     let { body } = call.request;
@@ -275,7 +277,7 @@ api.testStripeWebhook = {
     let event = null;
 
     try {
-      event = stripeHelper.constructEvent(body, sig);
+      event = Stripe.constructEvent(body, sig);
     }
     catch (err) {
       // invalid signature
@@ -297,7 +299,7 @@ api.testStripeWebhook = {
   }
 };
 
-api.paymentIntentWebhook = {
+api.stripePaymentIntentWebhook = {
   async handler(call) {
     const { headers } = call;
     let { body } = call.request;
@@ -312,7 +314,7 @@ api.paymentIntentWebhook = {
     let event = null;
 
     try {
-      event = stripeHelper.constructEvent(body, sig);
+      event = Stripe.constructEvent(body, sig);
     }
     catch (err) {
       // invalid signature
@@ -322,9 +324,9 @@ api.paymentIntentWebhook = {
 
     switch (event.type) {
       case 'payment_intent.succeeded':
-        await stripeHelper.processPaidPaymentIntent(intent); break;
+        await Stripe.processPaidPaymentIntent(intent); break;
       case 'payment_intent.payment_failed':
-        await stripeHelper.processFailedPaymentIntent(intent); break;
+        await Stripe.processFailedPaymentIntent(intent); break;
       case 'payment_intent.created':
         break;
       default:
