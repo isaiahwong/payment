@@ -1,1 +1,1 @@
-# GRPC server node boilerplate
+# Payment service

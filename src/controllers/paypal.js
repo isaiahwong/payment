@@ -168,6 +168,11 @@ api.paypalProcessOrder = {
   }
 };
 
+/**
+ * TODO
+ * Handle paypal declines
+ */
+
 api.paypalTestWebhook = {
   async handler(call) {
     let { body } = call.request;
