@@ -3,7 +3,7 @@ import axios from 'axios';
 import { InternalServerError } from 'horeb';
 import { isURL } from 'validator';
 
-import { ReqAccessTokenFailed, NotInstanceTransaction, PaypalOrderNotFound } from './errors';
+import { ReqAccessTokenFailed, NotInstanceTransaction, PaypalOrderNotFound, PaypalInvalidOperation } from './errors';
 import Transaction from '../models/transaction';
 
 class Paypal {
@@ -140,6 +140,7 @@ class Paypal {
         {
           description,
           reference_id: id,
+          custom_id: transaction._id.toString(),
           amount: {
             currency_code: currency,
             value: total,
@@ -188,16 +189,43 @@ class Paypal {
       ]
     });
 
-    if (res.status !== 200) {
+    if (res.status > 204) {
       const {
         name,
-        message
+        message,
+        details
       } = res.data;
       const err = new InternalServerError(message);
       err.type = name || err.type;
+      err.errors = details;
       throw err;
     }
     return res.data;
+  }
+
+  async executeOrder(orderId, intent = 'capture') {
+    const lowerCasedIntent = intent.toLowerCase();
+    switch (lowerCasedIntent) {
+      case 'capture': case 'authorize': break;
+      default:
+        throw new PaypalInvalidOperation(`${intent} intent is unsupported`);
+    }
+    await this.reqAccessToken();
+    const res = await this.fetch.post(`/v2/checkout/orders/${orderId}/${lowerCasedIntent}`);
+    const { data } = res;
+
+    if (res.status > 204) {
+      const {
+        name,
+        message,
+        details
+      } = res.data;
+      const err = new InternalServerError(message);
+      err.type = name || err.type;
+      err.errors = details;
+      throw err;
+    }
+    return data;
   }
 
   async retrieveOrder(orderId) {

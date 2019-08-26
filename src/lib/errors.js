@@ -78,7 +78,6 @@ export class PaypalInvalidOperation extends BadRequest {
   }
 }
 
-
 export class PaypalOrderNotFound extends NotFound {
   constructor(msg) {
     super(msg || 'Paypal order not found');

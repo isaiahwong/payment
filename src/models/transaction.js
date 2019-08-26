@@ -162,7 +162,7 @@ const TransactionSchema = Schema({
   status: {
     type: String,
     default: 'pending',
-    enum: ['succeeded', 'declined', 'refunded', 'pending'],
+    enum: ['succeeded', 'declined', 'refunded', 'pending', 'transitory'],
     required: true,
     validate: [
       {
@@ -180,9 +180,19 @@ const TransactionSchema = Schema({
             : true;
         },
         message: () => 'transaction.status refunded requires transaction.refund'
+      },
+      {
+        validator: function fn(v) {
+          return v === 'transitory'
+            ? !!this.transaction_error
+            : true;
+        },
+        message: () => 'transaction.status transitory requires transitory_expires'
       }
     ]
   },
+
+  transitory_expires: { type: Date },
 
   transaction_error: {
     error: { type: String }, // error stack

@@ -36,6 +36,10 @@ module.exports = {
     
     'import/prefer-default-export': 0,
 
+    "one-var-declaration-per-line": 0,
+
+    "one-var": 0,
+
     'no-underscore-dangle': 0,
 
     'comma-dangle': [
