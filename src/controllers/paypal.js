@@ -173,6 +173,18 @@ api.paypalProcessOrder = {
  * Handle paypal declines
  */
 
+api.paypalOrderWebhook = {
+  async handler(call) {
+    let { body } = call.request;
+    body = JSON.parse(body.toString());
+
+    // Verify webhook signature
+    console.log(body)
+    console.log(body.resource)
+    return ok();
+  }
+};
+
 api.paypalTestWebhook = {
   async handler(call) {
     let { body } = call.request;

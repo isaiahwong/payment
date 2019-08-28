@@ -207,7 +207,7 @@ api.stripeCharge = {
 
     try {
       paymentIntent = await Stripe.stripe.paymentIntents.create({
-        amount: total,
+        amount: total * 1000, // to cents
         currency: items.currency,
         customer: payment.stripe.customer,
         payment_method: payment.stripe.default_payment_method,
@@ -218,11 +218,11 @@ api.stripeCharge = {
           email: transaction.email,
           currency: transaction.currency,
           items_id: transaction.items.id,
-          subtotal: transaction.items.subtotal,
-          shipping: transaction.items.shipping,
-          tax: transaction.items.tax,
-          shipping_discount: transaction.items.shipping_discount,
-          discount: transaction.items.discount
+          subtotal: transaction.items.subtotal * 1000,
+          shipping: transaction.items.shipping * 1000,
+          tax: transaction.items.tax * 1000,
+          shipping_discount: transaction.items.shipping_discount * 1000,
+          discount: transaction.items.discount * 1000
         },
         confirm: true,
       });

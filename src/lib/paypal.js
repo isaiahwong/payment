@@ -132,7 +132,7 @@ class Paypal {
     const res = await this.fetch.post('/v2/checkout/orders', {
       intent: this.valPaypalIntent(intent) || 'CAPTURE',
       application_context: {
-        landing_page: this.valLandingPage(landing_page) || 'LOGIN',
+        landing_page: this.valLandingPage(landing_page) || 'NO_PREFERENCE',
         return_url: (isURL(return_url) && return_url) || process.env.PAYPAL_RETURN_URL,
         cancel_url: (isURL(cancel_url) && cancel_url) || process.env.PAYPAL_CANCEL_URL
       },

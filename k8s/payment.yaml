@@ -15,6 +15,7 @@ metadata:
         "exclude": [
           "/api/v1/payment/stripe/webhook/paymentintent",
           "/api/v1/payment/stripe/webhook/test",
+          "/api/v1/payment/paypal/webhook/order",
           "/api/v1/payment/paypal/webhook/test"
         ]
       }
