@@ -3,7 +3,12 @@ import axios from 'axios';
 import { InternalServerError } from 'horeb';
 import { isURL } from 'validator';
 
-import { ReqAccessTokenFailed, NotInstanceTransaction, PaypalOrderNotFound, PaypalInvalidOperation } from './errors';
+import {
+  ReqAccessTokenFailed,
+  NotInstanceTransaction,
+  PaypalOrderNotFound,
+  PaypalInvalidOperation
+} from './errors';
 import Transaction from '../models/transaction';
 
 class Paypal {
@@ -33,6 +38,30 @@ class Paypal {
     return new Paypal(options);
   }
 
+  async verifyWebhookSig(webhook_id, webhook_event, headers) {
+    const {
+      'paypal-auth-algo': auth_algo,
+      'paypal-cert-url': cert_url,
+      'paypal-transmission-id': transmission_id,
+      'paypal-transmission-sig': transmission_sig,
+      'paypal-transmission-time': transmission_time,
+    } = headers;
+    await this.reqAccessToken();
+    const res = await this.fetch.post('/v1/notifications/verify-webhook-signature', {
+      webhook_id,
+      webhook_event,
+      auth_algo,
+      cert_url,
+      transmission_id,
+      transmission_sig,
+      transmission_time,
+    });
+    if (res.status > 204) {
+      return false;
+    }
+    return res.data.verification_status === 'SUCCESS';
+  }
+
   async reqAccessToken() {
     if (this.tokenExpires > Date.now()) {
       return;
@@ -50,7 +79,7 @@ class Paypal {
       },
       data: 'grant_type=client_credentials'
     });
-    if (res.status !== 200) {
+    if (res.status > 204) {
       const err = new ReqAccessTokenFailed(res.data.error_description);
       err.type = res.data.error;
       throw err;
@@ -79,6 +108,16 @@ class Paypal {
       default:
         return false;
     }
+  }
+
+  async retrieveOrder(orderId) {
+    await this.reqAccessToken();
+    const res = await this.fetch.get(`/v2/checkout/orders/${orderId}`);
+    const { data } = res;
+    if (res.status === 404) {
+      throw new PaypalOrderNotFound(`Paypal order not found: ${orderId}`);
+    }
+    return data;
   }
 
   /**
@@ -132,6 +171,7 @@ class Paypal {
     const res = await this.fetch.post('/v2/checkout/orders', {
       intent: this.valPaypalIntent(intent) || 'CAPTURE',
       application_context: {
+        user_action: 'PAY_NOW',
         landing_page: this.valLandingPage(landing_page) || 'NO_PREFERENCE',
         return_url: (isURL(return_url) && return_url) || process.env.PAYPAL_RETURN_URL,
         cancel_url: (isURL(cancel_url) && cancel_url) || process.env.PAYPAL_CANCEL_URL
@@ -187,6 +227,10 @@ class Paypal {
           })),
         }
       ]
+    }, {
+      headers: {
+        Prefer: 'return=representation'
+      }
     });
 
     if (res.status > 204) {
@@ -224,16 +268,6 @@ class Paypal {
       err.type = name || err.type;
       err.errors = details;
       throw err;
-    }
-    return data;
-  }
-
-  async retrieveOrder(orderId) {
-    await this.reqAccessToken();
-    const res = await this.fetch.get(`/v2/checkout/orders/${orderId}`);
-    const { data } = res;
-    if (res.status === 404) {
-      throw new PaypalOrderNotFound(`Paypal order not found: ${orderId}`);
     }
     return data;
   }

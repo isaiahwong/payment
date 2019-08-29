@@ -1,12 +1,36 @@
+/* eslint-disable no-param-reassign */
 import mongoose from 'mongoose';
+import { InternalServerError, BadRequest } from 'horeb';
+
 import Payment from '../models/payment';
 import Transaction from '../models/transaction';
 import Paypal from '../lib/paypal';
 import i18n from '../lib/i18n';
-import { ok } from '../utils/response';
-import { PaymentNotFound, PaypalOrderNotFound, PaypalInvalidOperation, TransactionNotFound } from '../lib/errors';
+import { ok, respond } from '../utils/response';
+import {
+  PaymentNotFound,
+  PaypalOrderNotFound,
+  PaypalInvalidOperation,
+  TransactionNotFound
+} from '../lib/errors';
 
 const api = {};
+
+function commitPaypalOrder(capturedOrder, payment, transaction) {
+  if (!capturedOrder
+    || !capturedOrder.payer
+    || !capturedOrder.payer.payer_id
+    || !capturedOrder.payer.email_address
+    || capturedOrder.status !== 'COMPLETED') {
+    throw new BadRequest('Invalid paypal capturedOrder');
+  }
+  payment.transactions.push(transaction.id);
+  payment.paypal.payer = capturedOrder.payer.payer_id;
+
+  transaction.email = capturedOrder.payer.email_address;
+  transaction.transitory_expires = undefined;
+  transaction.setStatusPaid();
+}
 
 /**
  * We do not treat this api call as a full `Transaction` hence
@@ -150,21 +174,25 @@ api.paypalProcessOrder = {
       }
     }
 
-    const capturedOrder = await Paypal.executeOrder(orderId, paypalOrder.intent);
+    try {
+      const capturedOrder = await Paypal.executeOrder(orderId, paypalOrder.intent);
+      commitPaypalOrder(capturedOrder, payment, transaction);
 
-    payment.transactions.push(transaction.id);
-    payment.paypal.payer = capturedOrder.payer.payer_id;
-
-    transaction.email = capturedOrder.payer.email_address;
-    transaction.transitory_expires = undefined;
-    transaction.setStatusPaid();
-
-    await Promise.all([
-      transaction.save(),
-      payment.save()
-    ]);
-
-    return ok();
+      await Promise.all([
+        transaction.save(),
+        payment.save()
+      ]);
+      return ok();
+    }
+    catch (err) {
+      transaction.setStatusFailed({
+        error: err.name,
+        type: err.type,
+        message: err.message
+      });
+      await transaction.save();
+      throw err;
+    }
   }
 };
 
@@ -175,12 +203,69 @@ api.paypalProcessOrder = {
 
 api.paypalOrderWebhook = {
   async handler(call) {
-    let { body } = call.request;
+    const { headers, request } = call;
+    let { body } = request;
     body = JSON.parse(body.toString());
 
     // Verify webhook signature
-    console.log(body)
-    console.log(body.resource)
+    const verified = await Paypal.verifyWebhookSig(process.env.PAYPAL_WEBHOOK_ID, body, headers);
+
+    if (!verified) {
+      return respond(500);
+    }
+
+    const {
+      purchase_units,
+      id: orderId,
+      intent,
+    } = body.resource;
+
+    let transaction = await Transaction.findOne({ paypal_order_id: orderId });
+    if (!transaction) {
+      transaction = await Transaction.findById(purchase_units[0].custom_id);
+      if (!transaction) {
+        // We use internal server error to escalate the severity
+        // TODO, send email to admin
+        throw new InternalServerError(`Transaction does not exist for paypal order ${orderId}`);
+      }
+    }
+
+    const payment = await Payment.findById(transaction.payment);
+    if (!payment) {
+      // TODO, send email to admin
+      // We use internal server error to escalate the severity
+      throw new InternalServerError(`Payment ${transaction.payment} not found with assigned transaction ${transaction._id}`);
+    }
+
+    let capturedOrder;
+    const retrievedOrder = await Paypal.retrieveOrder(orderId);
+
+    switch (body.event_type) {
+      case 'CHECKOUT.ORDER.APPROVED': {
+        if (retrievedOrder.status !== 'COMPLETED') {
+          capturedOrder = await Paypal.executeOrder(orderId, intent);
+        }
+        else {
+          capturedOrder = retrievedOrder;
+        }
+        break;
+      }
+      case 'CHECKOUT.ORDER.COMPLETED': {
+        if (transaction.status !== 'succeeded') {
+          capturedOrder = body.resource;
+        }
+        break;
+      }
+      default:
+        return respond(500);
+    }
+
+    commitPaypalOrder(capturedOrder, payment, transaction);
+    await Promise.all([
+      transaction.save(),
+      payment.save()
+    ]);
+
     return ok();
   }
 };
@@ -188,9 +273,12 @@ api.paypalOrderWebhook = {
 api.paypalTestWebhook = {
   async handler(call) {
     let { body } = call.request;
+    const { headers } = call;
     body = JSON.parse(body.toString());
-    console.log(body)
-    console.log(body.resource)
+    const verified = await Paypal.verifyWebhookSig(process.env.PAYPAL_WEBHOOK_ID, body, headers);
+    if (!verified) {
+      return respond(500);
+    }
     return ok();
   }
 };

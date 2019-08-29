@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import i18n from '../lib/i18n';
 import Stripe from '../lib/stripe';
 import {
+  TransactionNotFound,
   MissingDefaultPayment,
   MissingPaymentMethodToCharge,
   CardExists,
@@ -321,14 +322,41 @@ api.stripePaymentIntentWebhook = {
       throw new InternalServerError(err.message);
     }
     intent = event.data.object;
+    const {
+      id: intentId,
+      last_payment_error,
+      metadata
+    } = intent;
+
+    let transaction = null;
+    if (metadata && metadata.transaction) {
+      transaction = await Transaction.findOne({ _id: metadata.transaction });
+    }
+    else {
+      transaction = await Transaction.findOne({ stripe_payment_intent: intentId });
+    }
+
+    if (!transaction) {
+      // TODO, send email to admin
+      const error = new TransactionNotFound();
+      error.message = `Transaction not found for stripe intent ${intentId}`;
+      throw error;
+    }
 
     switch (event.type) {
-      case 'payment_intent.succeeded':
-        await Stripe.processPaidPaymentIntent(intent); break;
-      case 'payment_intent.payment_failed':
-        await Stripe.processFailedPaymentIntent(intent); break;
-      case 'payment_intent.created':
-        break;
+      case 'payment_intent.succeeded': {
+        transaction.setStatusPaid();
+        await transaction.save(); break;
+      }
+      case 'payment_intent.payment_failed': {
+        transaction.setStatusFailed({
+          error: last_payment_error,
+          message: last_payment_error.message,
+          stripe_code: last_payment_error.decline_code,
+        });
+        await transaction.save(); break;
+      }
+      case 'payment_intent.created': break;
       default:
         return respond(500);
     }
