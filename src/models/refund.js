@@ -4,14 +4,25 @@ import { AMOUNT_PROP, CURRENCY_PROP } from './type';
 const { Schema } = mongoose;
 
 const RefundSchema = Schema({
+  id: {
+    type: String,
+    required: true,
+    validate: {
+      validator: function fn(v) {
+        return v === this._id.toString();
+      },
+      message: () => 'id must be equal this._id'
+    }
+  },
   object: { type: String, default: 'refund', enum: ['refund'] },
   transaction: { type: Schema.Types.ObjectId, ref: 'Transaction' },
 
   amount: AMOUNT_PROP,
-
-  stripe_refund: { type: String, unique: true },
-
   currency: CURRENCY_PROP,
+
+  stripe_refund: { type: String, unique: true, sparse: true },
+
+  paypal_refund: { type: String, unique: true, sparse: true },
 
   reason: { type: String, enum: ['requested_by_customer', 'fraudulent'], require: true },
 
@@ -33,11 +44,15 @@ const RefundSchema = Schema({
 
   failure_reason: {
     type: String,
-    enum: ['lost_or_stolen_card', 'expired_or_canceled_card', 'unknown'],
+    // enum: ['lost_or_stolen_card', 'expired_or_canceled_card', 'unknown'],
   },
 
   updated: { type: Date, select: false },
   created: { type: Date, select: false },
+});
+
+RefundSchema.pre('validate', function cb() {
+  this.id = this._id.toString();
 });
 
 RefundSchema.pre('save', function cb(next) {

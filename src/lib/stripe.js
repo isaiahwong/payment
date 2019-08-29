@@ -2,16 +2,13 @@
 /* eslint-disable class-methods-use-this */
 /* eslint-disable camelcase */
 import stripe from 'stripe';
-import mongoose from 'mongoose';
 import { InternalServerError, BadRequest } from 'horeb';
 
 import PaymentHelper from './payment';
 import Payment from '../models/payment';
 import Transaction from '../models/transaction';
-import Refund from '../models/refund';
 
 import {
-  TransactionNotFound,
   MissingDefaultPayment,
   MissingPaymentMethodToCharge
 } from './errors';
@@ -35,7 +32,13 @@ class Stripe extends PaymentHelper {
     return new Stripe(options);
   }
 
-  constructEvent(requestBody, signature, secret = process.env.STRIPE_ENDPOINT_SECRET) {
+  /**
+   * Verifies webhook stripe webhook signature
+   * @param {*} requestBody 
+   * @param {*} signature 
+   * @param {*} secret 
+   */
+  constructEvent(requestBody, signature, secret = process.env.STRIPE_WH_PAYMENT_INTENT_SECRET) {
     return this.stripe.webhooks.constructEvent(requestBody, signature, secret);
   }
 
@@ -129,7 +132,7 @@ class Stripe extends PaymentHelper {
     return !!found;
   }
 
-  async createRefund(transaction) {
+  async refund(transaction) {
     if (!(transaction instanceof Transaction)) {
       throw new InternalServerError('Arguments passed not an instance of transaction');
     }
@@ -145,26 +148,8 @@ class Stripe extends PaymentHelper {
         items_id: transaction.items.id
       },
     });
-    const refund = new Refund({
-      _id: mongoose.Types.ObjectId(),
-      transaction,
-      stripe_refund: stripeRefund.id,
-      amount: stripeRefund.amount,
-      currency: transaction.currency,
-      status: stripeRefund.status,
-      reason: stripeRefund.reason
-    });
-    // Mongoose validation
-    const errors = refund.validateSync();
-    if (errors) {
-      throw errors;
-    }
-    transaction.refund = refund._id;
-    transaction.status = 'refunded';
-    return Promise.all([
-      refund.save(),
-      transaction.save()
-    ]);
+
+    return stripeRefund;
   }
 }
 

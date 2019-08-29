@@ -12,7 +12,10 @@ import {
 } from '../lib/errors';
 // eslint-disable-next-line import/no-named-as-default
 import Stripe from '../lib/stripe';
+import Paypal from '../lib/paypal';
+
 import Payment from '../models/payment';
+import Refund from '../models/refund';
 import Transaction from '../models/transaction';
 
 const api = {};
@@ -118,7 +121,7 @@ api.refund = {
   async handler(call) {
     const { user, transaction: _transaction } = call.request;
 
-    let transaction = await Transaction.findOne({ user, transaction: _transaction });
+    let transaction = await Transaction.findOne({ user, _id: _transaction });
     if (!transaction) {
       throw new TransactionNotFound(`Transaction not found for ${_transaction}`);
     }
@@ -126,16 +129,39 @@ api.refund = {
       throw new RefundNotAllowed(`${capitalize(transaction.status)} transactions cannot be refunded`);
     }
 
-    let refund = null;
+    let refund = new Refund({
+      _id: mongoose.Types.ObjectId(),
+      transaction,
+      reason: 'requested_by_customer'
+    });
 
     switch (transaction.provider) {
-      case 'stripe':
-        [refund, transaction] = await Stripe.createRefund(transaction); break;
-      case 'paypal':
+      case 'stripe': {
+        const stripeRefund = await Stripe.refund(transaction);
+        refund.stripe_refund = stripeRefund.id;
+        refund.amount = stripeRefund.amount;
+        refund.currency = stripeRefund.currency;
+        refund.status = stripeRefund.status;
         break;
+      }
+      case 'paypal': {
+        const paypalRefund = await Paypal.refund(transaction);
+        refund.paypal_refund = paypalRefund.id;
+        refund.amount = paypalRefund.amount.value;
+        refund.currency = paypalRefund.amount.currency_code;
+        refund.status = paypalRefund.status === 'COMPLETED' ? 'succeeded' : 'failed';
+        break;
+      }
       default:
         throw new UnknownProvider();
     }
+
+    transaction.refund = refund._id;
+    transaction.status = 'refunded';
+    [refund, transaction] = await Promise.all([
+      refund.save(),
+      transaction.save()
+    ]);
     return ok({ refund: refund.toJSON(), transaction: transaction.toJSON() });
   }
 };

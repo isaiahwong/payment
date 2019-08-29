@@ -193,7 +193,7 @@ api.stripeCharge = {
       total
     });
     // Mongoose validation
-    const errors = transaction.validateSync();
+    const errors = await transaction.validate();
     if (errors) {
       throw errors;
     }
@@ -208,7 +208,7 @@ api.stripeCharge = {
 
     try {
       paymentIntent = await Stripe.stripe.paymentIntents.create({
-        amount: total * 1000, // to cents
+        amount: total * 100, // to cents
         currency: items.currency,
         customer: payment.stripe.customer,
         payment_method: payment.stripe.default_payment_method,
@@ -219,11 +219,11 @@ api.stripeCharge = {
           email: transaction.email,
           currency: transaction.currency,
           items_id: transaction.items.id,
-          subtotal: transaction.items.subtotal * 1000,
-          shipping: transaction.items.shipping * 1000,
-          tax: transaction.items.tax * 1000,
-          shipping_discount: transaction.items.shipping_discount * 1000,
-          discount: transaction.items.discount * 1000
+          subtotal: transaction.items.subtotal,
+          shipping: transaction.items.shipping,
+          tax: transaction.items.tax,
+          shipping_discount: transaction.items.shipping_discount,
+          discount: transaction.items.discount
         },
         confirm: true,
       });
@@ -260,43 +260,6 @@ api.stripeCharge = {
     transaction = await transaction.save();
 
     return ok({ payment_intent: paymentIntent, transaction: transaction.toJSON() });
-  }
-};
-
-api.stripeTestWebhook = {
-  async handler(call) {
-    const { headers } = call;
-    let { body } = call.request;
-
-    if (!body || !Buffer.isBuffer(body)) {
-      throw new BadRequest('invalidParams');
-    }
-
-    body = body.toString();
-    const sig = headers['stripe-signature'];
-    let intent = null;
-    let event = null;
-
-    try {
-      event = Stripe.constructEvent(body, sig);
-    }
-    catch (err) {
-      // invalid signature
-      throw new InternalServerError(err.message);
-    }
-    // eslint-disable-next-line default-case
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        intent = event.data.object;
-        logger.info(`Succeeded: ${intent.id}`);
-        break;
-      case 'payment_intent.payment_failed':
-        intent = event.data.object;
-        const message = intent.last_payment_error && intent.last_payment_error.message;
-        logger.info(`Failed: ${intent.id} ${message}`);
-        break;
-    }
-    return ok();
   }
 };
 
@@ -359,6 +322,43 @@ api.stripePaymentIntentWebhook = {
       case 'payment_intent.created': break;
       default:
         return respond(500);
+    }
+    return ok();
+  }
+};
+
+api.stripeTestWebhook = {
+  async handler(call) {
+    const { headers } = call;
+    let { body } = call.request;
+
+    if (!body || !Buffer.isBuffer(body)) {
+      throw new BadRequest('invalidParams');
+    }
+
+    body = body.toString();
+    const sig = headers['stripe-signature'];
+    let intent = null;
+    let event = null;
+
+    try {
+      event = Stripe.constructEvent(body, sig);
+    }
+    catch (err) {
+      // invalid signature
+      throw new InternalServerError(err.message);
+    }
+    // eslint-disable-next-line default-case
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        intent = event.data.object;
+        logger.info(`Succeeded: ${intent.id}`);
+        break;
+      case 'payment_intent.payment_failed':
+        intent = event.data.object;
+        const message = intent.last_payment_error && intent.last_payment_error.message;
+        logger.info(`Failed: ${intent.id} ${message}`);
+        break;
     }
     return ok();
   }

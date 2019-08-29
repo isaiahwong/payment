@@ -6,6 +6,16 @@ import { CURRENCY_PROP, AMOUNT_PROP } from './type';
 const { Schema } = mongoose;
 
 const TransactionSchema = Schema({
+  id: {
+    type: String,
+    required: true,
+    validate: {
+      validator: function fn(v) {
+        return v === this._id.toString();
+      },
+      message: () => 'id must be equal this._id'
+    }
+  },
   object: { type: String, default: 'transaction', enum: ['transaction'] },
   payment: { type: Schema.Types.ObjectId, ref: 'Payment' },
   user: { type: String, required: true },
@@ -55,7 +65,7 @@ const TransactionSchema = Schema({
   currency: CURRENCY_PROP,
 
   items: { // The individual line items that make up the invoice Items.
-    id: { type: String, required: true }, // External id reference from API caller
+    id: { type: String, required: true, unique: true }, // External id reference from API caller i.e Order
     description: { type: String },
     metadata: { type: Schema.Types.Mixed },
 
@@ -147,12 +157,19 @@ const TransactionSchema = Schema({
   paid: {
     type: Boolean,
     default: false,
-    required: false,
+    required: true,
     validate: [
       {
         validator: function fn(v) {
-          return (v && this.status === 'succeeded')
-            || (!v && this.status !== 'succeeded');
+          if (v) {
+            switch (this.status) {
+              case 'succeeded': case 'refunded':
+                return true;
+              default:
+                return false;
+            }
+          }
+          return true;
         },
         message: () => 'Paid can only be true when status is successful'
       }
@@ -204,6 +221,10 @@ const TransactionSchema = Schema({
   ip: { type: String, select: false },
   updated: { type: Date, select: false },
   created: { type: Date, select: false },
+});
+
+TransactionSchema.pre('validate', function cb() {
+  this.id = this._id.toString();
 });
 
 TransactionSchema.pre('save', function cb(next) {

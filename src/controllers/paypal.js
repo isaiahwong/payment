@@ -93,7 +93,7 @@ api.paypalCreateOrder = {
       total,
     });
     // Mongoose validation
-    const errors = transaction.validateSync();
+    const errors = await transaction.validate();
     if (errors) {
       throw errors;
     }
@@ -214,6 +214,9 @@ api.paypalOrderWebhook = {
       return respond(500);
     }
 
+    console.log(body.event_type)
+    console.log(body.resource.purchase_units[0])
+
     const {
       purchase_units,
       id: orderId,
@@ -239,6 +242,9 @@ api.paypalOrderWebhook = {
 
     let capturedOrder;
     const retrievedOrder = await Paypal.retrieveOrder(orderId);
+
+    console.log('retrieve ORDER')
+    console.log(retrievedOrder)
 
     switch (body.event_type) {
       case 'CHECKOUT.ORDER.APPROVED': {

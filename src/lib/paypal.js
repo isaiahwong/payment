@@ -24,7 +24,8 @@ class Paypal {
       baseURL: this.baseURL,
       timeout: 10000,
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation'
       },
       validateStatus: status => status < 500
     });
@@ -146,7 +147,7 @@ class Paypal {
     }
 
     // Mongoose validation
-    const errors = transaction.validateSync();
+    const errors = await transaction.validate();
     if (errors) {
       throw errors;
     }
@@ -256,8 +257,35 @@ class Paypal {
     }
     await this.reqAccessToken();
     const res = await this.fetch.post(`/v2/checkout/orders/${orderId}/${lowerCasedIntent}`);
-    const { data } = res;
+    if (res.status > 204) {
+      const {
+        name,
+        message,
+        details
+      } = res.data;
+      console.log(res.data)
+      const err = new InternalServerError(message);
+      err.type = name || err.type;
+      err.errors = details;
+      throw err;
+    }
+    return res.data;
+  }
 
+  async refund(transaction) {
+    if (!(transaction instanceof Transaction)) {
+      throw new InternalServerError('Arguments passed not an instance of transaction');
+    }
+    await this.reqAccessToken();
+
+    const paypalOrder = await this.retrieveOrder(transaction.paypal_order_id);
+
+    const capture = paypalOrder.purchase_units[0].payments.captures[0];
+
+    const res = await this.fetch.post(`/v2/payments/captures/${capture.id}/refund`, {
+      amount: capture.amount,
+      invoice_id: transaction.items.id,
+    });
     if (res.status > 204) {
       const {
         name,
@@ -269,7 +297,7 @@ class Paypal {
       err.errors = details;
       throw err;
     }
-    return data;
+    return res.data;
   }
 }
 
