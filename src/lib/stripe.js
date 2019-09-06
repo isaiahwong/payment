@@ -34,9 +34,9 @@ class Stripe extends PaymentHelper {
 
   /**
    * Verifies webhook stripe webhook signature
-   * @param {*} requestBody 
-   * @param {*} signature 
-   * @param {*} secret 
+   * @param {*} requestBody
+   * @param {*} signature
+   * @param {*} secret
    */
   constructEvent(requestBody, signature, secret = process.env.STRIPE_WH_PAYMENT_INTENT_SECRET) {
     return this.stripe.webhooks.constructEvent(requestBody, signature, secret);

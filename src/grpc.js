@@ -196,7 +196,7 @@ class GrpcServer {
     // log the error
     logger.error(err, args);
 
-    const metadata = encodeMetadata('object', responseErr);
+    const metadata = encodeMetadata('metadata', responseErr);
     responseErr.metadata = metadata;
 
     callback(responseErr);

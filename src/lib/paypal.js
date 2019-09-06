@@ -263,7 +263,6 @@ class Paypal {
         message,
         details
       } = res.data;
-      console.log(res.data)
       const err = new InternalServerError(message);
       err.type = name || err.type;
       err.errors = details;
@@ -284,7 +283,7 @@ class Paypal {
 
     const res = await this.fetch.post(`/v2/payments/captures/${capture.id}/refund`, {
       amount: capture.amount,
-      invoice_id: transaction.items.id,
+      // invoice_id: transaction.items.id,
     });
     if (res.status > 204) {
       const {

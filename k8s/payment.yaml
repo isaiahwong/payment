@@ -6,9 +6,7 @@ metadata:
     resourceType: api-service
   annotations:
     config: '{
-      "expose": true,
-      "serviceType": "resource",
-      "path": "payment",
+      "path": "/api/v1/payment",
       "apiVersion": "v1",
       "authentication": {
         "required": "true",

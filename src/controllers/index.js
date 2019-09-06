@@ -86,13 +86,17 @@ api.retrievePayment = {
     }
   },
   async handler(call) {
-    const { user } = call.request;
+    const { user, transaction = true } = call.request;
 
     const payment = await Payment.findOne({ user });
     if (!payment) {
       throw new PaymentNotFound(`Payment not found for user: ${user}`);
     }
-    return ok({ payment: payment.toJSON() });
+    const json = payment.toJSON();
+    if (!transaction) {
+      json.transaction = [];
+    }
+    return ok({ payment: json });
   }
 };
 

@@ -65,7 +65,8 @@ const TransactionSchema = Schema({
   currency: CURRENCY_PROP,
 
   items: { // The individual line items that make up the invoice Items.
-    id: { type: String, required: true, unique: true }, // External id reference from API caller i.e Order
+    // eslint-disable-next-line max-len
+    id: { type: String, required: true }, // External id reference from API caller i.e Order
     description: { type: String },
     metadata: { type: Schema.Types.Mixed },
 
