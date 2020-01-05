@@ -1,10 +1,11 @@
+/* eslint-disable no-prototype-builtins */
 /* eslint-disable import/no-dynamic-require */
 /* eslint-disable global-require */
-import path from 'path';
 import fs from 'fs';
 import grpc from 'grpc';
 import logger from 'esther';
-import { grpcLoader, encodeMetadata } from 'grpc-utils';
+import * as protoLoader from '@grpc/proto-loader';
+import { encodeMetadata } from 'grpc-utils';
 import { map, omit } from 'lodash';
 import {
   InternalServerError,
@@ -13,19 +14,31 @@ import {
   ServiceUnavailable
 } from 'horeb';
 
-import i18n from './lib/i18n';
-import { check } from './utils/validator';
-
-const CONTROLLER_PATH = path.join(__dirname, 'controllers/');
-const PROTO_PATH = path.join(__dirname, '..', 'proto/payment/payment.proto');
+import i18n from './i18n';
+import { check } from '../utils/validator';
 
 class GrpcServer {
-  constructor() {
+  constructor({
+    controllerPath,
+    protoPath,
+    includes,
+    pkg,
+  }) {
     this._port = process.env.PORT || 50051;
     this._server = new grpc.Server();
+    this.protoPath = protoPath;
+    this.controllerPath = controllerPath;
     // Load proto to be injected to Grpc Server
-    const proto = grpcLoader.loadProto(PROTO_PATH);
-    this.loadCoreServices(proto);
+    const options = {
+      keepCase: true,
+      longs: String,
+      enums: String,
+      defaults: true,
+      oneofs: true,
+      includeDirs: [...includes]
+    };
+    const proto = protoLoader.loadSync(protoPath, options);
+    this.loadCoreServices(proto, pkg);
   }
 
   static iterate(filePath) {
@@ -38,7 +51,7 @@ class GrpcServer {
           return _obj;
         }
         if (fileName.match(/\.js$/)) {
-          const controller = require(filePath + fileName);
+          const controller = require(`${filePath}${fileName}`);
           if (!controller) return _obj;
 
           return { ..._obj, ...controller };
@@ -271,17 +284,36 @@ class GrpcServer {
     if (!proto) {
       throw new InternalServerError('protos not found');
     }
-    this.pkg = Object.keys(proto)[0];
-    if (!this.pkg) {
-      throw new InternalServerError('package not found');
-    }
-    this.service = Object.keys(proto[this.pkg])[0];
+    const def = GrpcServer.loadPackageDefinition(proto);
 
-    const controllers = GrpcServer.iterate(CONTROLLER_PATH);
+    this.pkg = def.pkg;
+    this.service = def.serviceName;
+    const controllers = GrpcServer.iterate(this.controllerPath);
     this._server.addService(
-      proto[this.pkg][this.service].service,
-      GrpcServer.mapControllers(proto[this.pkg][this.service].service, controllers)
+      def.service,
+      GrpcServer.mapControllers(def.service, controllers)
     );
+  }
+
+  static loadPackageDefinition(packageDef) {
+    const result = {};
+    const keys = Object.keys(packageDef);
+    for (let i = 0; i < keys.length; i += 1) {
+      const serviceFqn = keys[i];
+      const service = packageDef[serviceFqn];
+      const nameComponents = serviceFqn.split('.');
+      const serviceName = nameComponents[nameComponents.length - 1];
+      // We are only interested in implemented services
+      // Apparently grpc package `loadPackageDefinition` uses the same logic
+      // to check for services. I could have misinterpret it.
+      if (!service.hasOwnProperty('format')) {
+        result.service = service;
+        result.serviceName = serviceName;
+        result.pkg = serviceFqn;
+        break;
+      }
+    }
+    return result;
   }
 
   listen() {

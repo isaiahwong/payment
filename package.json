@@ -15,6 +15,7 @@
   "license": "ISC",
   "dependencies": {
     "@babel/polyfill": "^7.4.3",
+    "@grpc/proto-loader": "^0.5.3",
     "axios": "^0.19.0",
     "bluebird": "^3.5.4",
     "body-parser": "^1.19.0",
@@ -23,12 +24,13 @@
     "esther": "^1.0.8",
     "express": "^4.17.1",
     "grpc": "^1.22.2",
-    "grpc-utils": "^1.0.14",
-    "helmet": "^3.18.0",
+    "grpc-utils": "^1.0.19",
+    "helmet": "^3.21.2",
     "horeb": "^1.1.2",
     "lodash": "^4.17.14",
     "mongoose": "^5.6.4",
     "morgan": "^1.9.1",
+    "source-map-support": "^0.5.16",
     "stripe": "^7.4.0",
     "validator": "^11.0.0"
   },

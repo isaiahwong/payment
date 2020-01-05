@@ -1,15 +1,16 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: payment-service
+  # package.rpc-service
+  name: api-payment-paymentservice
   labels:
     resourceType: api-service
   annotations:
     config: '{
-      "path": "/api/v1/payment",
       "apiVersion": "v1",
+      "path": "/payment",
       "authentication": {
-        "required": "true",
+        "required": true,
         "exclude": [
           "/api/v1/payment/stripe/webhook/paymentintent",
           "/api/v1/payment/stripe/webhook/test",

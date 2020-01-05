@@ -210,6 +210,7 @@ const TransactionSchema = Schema({
     ]
   },
 
+  // When the time elapse, the transaction object will be deleted
   transitory_expires: { type: Date },
 
   transaction_error: {

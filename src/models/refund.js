@@ -24,7 +24,7 @@ const RefundSchema = Schema({
 
   paypal_refund: { type: String, unique: true, sparse: true },
 
-  reason: { type: String, enum: ['requested_by_customer', 'fraudulent'], require: true },
+  reason: { type: String, enum: ['requested_by_customer', 'fraudulent', 'admin'], require: true },
 
   status: {
     type: String,
