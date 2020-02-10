@@ -13,6 +13,7 @@ mongoose.Promise = Promise;
 const maxTries = process.env.MONGO_RETRIES || 20; // Reconnects n times
 const interval = process.env.MONGO_RETRIES_INTERVAL || 5000; //  In Milleseconds I.E. 5 seconds
 
+let db = null;
 let tries = 0; // tries counter
 
 const mongooseOptions = {
@@ -45,9 +46,13 @@ function connect() {
     });
 }
 
+function getDB() {
+  return db;
+}
+
 // Do not connect to MongoDB when in maintenance mode
 if (MAINTENANCE_MODE !== 'true') {
-  const db = mongoose.connection;
+  db = mongoose.connection;
 
   db.on('open', () => {
     logger.info(`Connected to the ${NODE_DB_URI}.`);
@@ -81,3 +86,6 @@ if (MAINTENANCE_MODE !== 'true') {
 exports = module.exports = connect;
 // eslint-disable-next-line no-multi-assign
 exports = mongoose.connection;
+export {
+  getDB,
+};

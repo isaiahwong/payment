@@ -15,6 +15,7 @@ import {
 } from '../lib/errors';
 import Transaction from '../models/transaction';
 import Payment from '../models/payment';
+import { getDB } from '../lib/mongoose';
 import { ok, respond } from '../utils/response';
 
 const api = {};
@@ -277,12 +278,16 @@ api.stripePaymentIntentWebhook = {
     let intent = null;
     let event = null;
 
+    if (!sig) {
+      throw new BadRequest('Signature not found in header');
+    }
+
     try {
       event = Stripe.constructEvent(body, sig);
     }
     catch (err) {
       // invalid signature
-      throw new InternalServerError(err.message);
+      throw new BadRequest(err.message);
     }
     intent = event.data.object;
     const {
@@ -341,12 +346,16 @@ api.stripeTestWebhook = {
     let intent = null;
     let event = null;
 
+    if (!sig) {
+      throw new BadRequest('Signature not found in header');
+    }
+
     try {
       event = Stripe.constructEvent(body, sig);
     }
     catch (err) {
       // invalid signature
-      throw new InternalServerError(err.message);
+      throw new BadRequest(err.message);
     }
     // eslint-disable-next-line default-case
     switch (event.type) {

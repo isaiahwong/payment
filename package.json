@@ -28,7 +28,7 @@
     "helmet": "^3.21.2",
     "horeb": "^1.1.2",
     "lodash": "^4.17.14",
-    "mongoose": "^5.6.4",
+    "mongoose": "^5.8.11",
     "morgan": "^1.9.1",
     "source-map-support": "^0.5.16",
     "stripe": "^7.4.0",

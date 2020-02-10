@@ -47,7 +47,6 @@ const grpcServer = new GrpcServer({
   controllerPath: CONTROLLER_PATH,
   protoPath: PROTO_PATH,
   includes: INCLUDES,
-  pkg: 'api.payment',
 });
 
 grpcServer.listen();
