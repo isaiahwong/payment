@@ -67,3 +67,29 @@ spec:
     ports:
     - protocol: TCP
       port: 27017
+
+---
+# Persistent Volume Claim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-payment-pvc
+spec: 
+  accessModes: 
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+---
+# Base64 encode the values stored in a Kubernetes Secret
+# pbpaste | base64 | pbcopy
+# pbpaste | base64 --decode
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mongo-payment-env-secrets
+type: Opaque
+data:
+  MONGO_INITDB_ROOT_USERNAME: ZGV2cGF5bWVudA==
+  MONGO_INITDB_ROOT_PASSWORD: ZGV2dXNlcjEyMyk=
+  

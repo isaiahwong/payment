@@ -9,6 +9,3 @@ deploy:
     - k8s/env.yaml
     - k8s/payment.yaml
     - k8s/secrets.yaml
-    - k8s/mongo-payment.yaml
-    - k8s/mongo-pvc.yaml
-    - k8s/mongo-secrets.yaml

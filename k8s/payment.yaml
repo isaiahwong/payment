@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   # package.rpc-service
-  name: api-payment-paymentservice
+  name: api-payment-v1-paymentservice
   labels:
     resourceType: api-service
   annotations:

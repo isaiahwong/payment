@@ -24,7 +24,7 @@
     "esther": "^1.0.8",
     "express": "^4.17.1",
     "grpc": "^1.22.2",
-    "grpc-utils": "^1.0.19",
+    "grpc-utils": "^1.0.23",
     "helmet": "^3.21.2",
     "horeb": "^1.1.2",
     "lodash": "^4.17.14",
@@ -35,11 +35,11 @@
     "validator": "^11.0.0"
   },
   "devDependencies": {
-    "@babel/cli": "^7.2.0",
+    "@babel/cli": "^7.8.4",
     "@babel/core": "^7.3.3",
     "@babel/node": "^7.2.0",
     "@babel/preset-env": "^7.2.0",
-    "@babel/register": "^7.0.0",
+    "@babel/register": "^7.9.0",
     "babel-eslint": "^10.0.2",
     "babel-plugin-add-module-exports": "^1.0.2",
     "chai": "^4.2.0",

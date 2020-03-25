@@ -17,7 +17,7 @@ const mongoConnect = require('./lib/mongoose');
 const pkg = require('../package.json');
 
 const CONTROLLER_PATH = path.join(__dirname, 'controllers/');
-const PROTO_PATH = `${__dirname}/../proto/api/payment/payment.proto`;
+const PROTO_PATH = `${__dirname}/../proto/api/payment/v1/payment.proto`;
 const INCLUDES = [
   `${__dirname}/../proto/api`,
   `${__dirname}/../proto/third_party/googleapis`,
